@@ -34,8 +34,14 @@ function RadioButton({ id, name, label, checked, onChange }) {
   );
 }
 
-export default function RadioGroup({ label, options = [], defaultValue, style }) {
-  const [selected, setSelected] = useState(defaultValue ?? options[0]);
+export default function RadioGroup({ label, options = [], defaultValue, value, onChange, style }) {
+  const [internal, setInternal] = useState(defaultValue ?? options[0]);
+  const selected = value !== undefined ? value : internal;
+
+  function handleChange(val) {
+    if (value === undefined) setInternal(val);
+    if (onChange) onChange(val);
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
@@ -50,7 +56,7 @@ export default function RadioGroup({ label, options = [], defaultValue, style })
             name={label}
             label={opt}
             checked={selected === opt}
-            onChange={setSelected}
+            onChange={handleChange}
           />
         ))}
       </div>
