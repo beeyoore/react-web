@@ -26,6 +26,87 @@ function UploadIcon() {
   );
 }
 
+function CloseCircleIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" stroke="var(--blue-main)" strokeWidth="1.5" />
+      <path d="M15 9L9 15M9 9L15 15" stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function formatSize(bytes) {
+  const mb = bytes / (1024 * 1024);
+  return mb.toFixed(1).replace('.', ',') + ' MB';
+}
+
+function getExt(name) {
+  return name.split('.').pop().toUpperCase();
+}
+
+function FileCard({ file, onRemove }) {
+  return (
+    <div style={{
+      flex: '1 0 0',
+      minWidth: 0,
+      background: '#e5f2ff',
+      borderRadius: 8,
+    }}>
+      <div style={{
+        background: 'var(--grey-bg)',
+        borderRadius: 8,
+        padding: '16px 24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 24,
+        width: '100%',
+      }}>
+        <div style={{ flex: '1 0 0', minWidth: 0 }}>
+          <p style={{
+            fontSize: 22,
+            fontWeight: 600,
+            letterSpacing: 1,
+            lineHeight: '28px',
+            color: 'var(--text-main)',
+            marginBottom: 4,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {file.name}
+          </p>
+          <p style={{
+            fontSize: 18,
+            fontWeight: 300,
+            letterSpacing: 1,
+            lineHeight: '28px',
+            color: 'var(--text-main)',
+            whiteSpace: 'nowrap',
+          }}>
+            {formatSize(file.size)} - {getExt(file.name)}
+          </p>
+        </div>
+        <button
+          onClick={onRemove}
+          aria-label={`Rimuovi ${file.name}`}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 8,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <CloseCircleIcon />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function CaricamentoDocumenti({ onNext, onCancel }) {
   const inputRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -49,6 +130,12 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
   }
 
   const hasFiles = files.length > 0;
+
+  // Group files into rows of 2
+  const rows = [];
+  for (let i = 0; i < files.length; i += 2) {
+    rows.push(files.slice(i, i + 2));
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -137,7 +224,7 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
               lineHeight: '28px',
               color: 'var(--text-main)',
             }}>
-              Formati accettati: <span style={{ fontWeight: 300 }}>PDF, P7M (max xMb)</span>
+              Formati accettati: PDF, P7M (max xMb)
             </p>
           </div>
         </div>
@@ -151,47 +238,35 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
           onChange={e => { handleFiles(e.target.files); e.target.value = ''; }}
         />
 
-        {/* File list */}
+        {/* Uploaded files grid */}
         {hasFiles && (
-          <ul style={{
-            marginLeft: 'var(--margin-l)',
-            marginTop: 16,
-            listStyle: 'none',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}>
-            {files.map((file, i) => (
-              <li key={i} style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 16px',
-                border: '1px solid var(--grey-border)',
-                borderRadius: 'var(--radius-input)',
-                background: 'var(--grey-bg)',
-              }}>
-                <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)' }}>
-                  {file.name}
-                </span>
-                <button
-                  onClick={e => { e.stopPropagation(); handleRemove(i); }}
-                  aria-label={`Rimuovi ${file.name}`}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--grey-text)',
-                    fontSize: 18,
-                    lineHeight: 1,
-                    padding: '0 4px',
-                  }}
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div style={{ marginLeft: 'var(--margin-l)', marginTop: 32 }}>
+            <h3 style={{
+              fontSize: 26,
+              fontWeight: 600,
+              letterSpacing: 1,
+              lineHeight: '34px',
+              color: 'var(--text-main)',
+              marginBottom: 16,
+            }}>
+              Documenti caricati
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {rows.map((row, rowIdx) => (
+                <div key={rowIdx} style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+                  {row.map((file, colIdx) => (
+                    <FileCard
+                      key={rowIdx * 2 + colIdx}
+                      file={file}
+                      onRemove={e => { e.stopPropagation(); handleRemove(rowIdx * 2 + colIdx); }}
+                    />
+                  ))}
+                  {/* Empty placeholder to keep single items half-width */}
+                  {row.length === 1 && <div style={{ flex: '1 0 0' }} />}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </main>
 
