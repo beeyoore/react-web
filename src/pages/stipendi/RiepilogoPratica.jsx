@@ -4,6 +4,8 @@ import TopHeader from '../../components/TopHeader';
 import SubheaderMenu from '../../components/SubheaderMenu';
 import Stepper from '../../components/Stepper';
 import NavigationToolbar from '../../components/NavigationToolbar';
+import userProfile from '../../data/userProfile.json';
+import { apriPratica } from '../../api/apriPratica';
 
 const STEPS = [
   { label: 'Dati della pratica',    sublabel: 'Completato' },
@@ -208,6 +210,21 @@ function DocumentCard({ file }) {
 
 export default function RiepilogoPraticaStipendi({ praticeData, uploadedFiles = [], onCancel, userName }) {
   const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState(null);
+
+  async function handleApriPratica() {
+    setApiError(null);
+    setLoading(true);
+    try {
+      await apriPratica(userProfile.id, uploadedFiles);
+      setShowModal(true);
+    } catch (err) {
+      setApiError(err.message || 'Errore durante l\'apertura della pratica');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const {
     protocollo = '',
@@ -299,11 +316,25 @@ export default function RiepilogoPraticaStipendi({ praticeData, uploadedFiles = 
 
       <div style={{ height: 96 }} />
 
+      {apiError && (
+        <div role="alert" style={{
+          margin: '0 var(--margin-xl) 16px',
+          padding: '12px 16px',
+          background: '#fdecea',
+          border: '1px solid #f44336',
+          borderRadius: 4,
+          color: '#b71c1c',
+          fontSize: 14,
+        }}>
+          {apiError}
+        </div>
+      )}
+
       <NavigationToolbar
         onCancel={onCancel}
-        onNext={() => setShowModal(true)}
-        nextDisabled={false}
-        nextLabel="Apri pratica e avvia i controlli"
+        onNext={handleApriPratica}
+        nextDisabled={loading}
+        nextLabel={loading ? 'Apertura in corso...' : 'Apri pratica e avvia i controlli'}
       />
 
       {showModal && (
