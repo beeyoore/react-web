@@ -287,7 +287,7 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
         onCancel={onCancel}
         onNext={() => setShowModal(true)}
         nextDisabled={false}
-        nextLabel="Crea pratica e avvia i controlli"
+        nextLabel="Apri pratica e avvia i controlli"
       />
 
       {showModal && (

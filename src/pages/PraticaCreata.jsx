@@ -152,13 +152,13 @@ export default function PraticaCreata({ praticeData, uploadedFiles = [], onHome 
               fontSize: 32, fontWeight: 600, letterSpacing: 1, lineHeight: '42px',
               color: 'white', margin: 0,
             }}>
-              Pratica creata con successo
+              Pratica aperta con successo
             </h1>
             <p style={{
               fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
               color: 'white', margin: 0,
             }}>
-              La pratica è stata creata e i controlli sono stati avviati. Riceverai aggiornamenti sullo stato della lavorazione.
+              La pratica è stata aperta e i controlli sono stati avviati. Riceverai aggiornamenti sullo stato della lavorazione.
             </p>
           </div>
         </div>
