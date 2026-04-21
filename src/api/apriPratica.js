@@ -3,14 +3,15 @@ const API_URL = import.meta.env.VITE_API_APRI_PRATICA_URL;
 /**
  * Crea la pratica su DynamoDB e ottiene i presigned URL per l'upload S3.
  * @param {string} userId
+ * @param {'controlli'|'stipendi'} tipoServizio
  * @param {string[]} fileNames
  * @returns {Promise<{ id_pratica: string, status: string, presigned_urls: Array }>}
  */
-export async function apriPratica(userId, fileNames) {
+export async function apriPratica(userId, tipoServizio, fileNames) {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, file_names: fileNames }),
+    body: JSON.stringify({ user_id: userId, tipo_servizio: tipoServizio, file_names: fileNames }),
   });
 
   if (!res.ok) {

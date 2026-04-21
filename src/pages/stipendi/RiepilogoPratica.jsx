@@ -217,7 +217,7 @@ export default function RiepilogoPraticaStipendi({ praticeData, uploadedFiles = 
     setApiError(null);
     setLoading(true);
     try {
-      const { presigned_urls } = await apriPratica(userProfile.id, uploadedFiles.map(f => f.name));
+      const { presigned_urls } = await apriPratica(userProfile.id, 'stipendi', uploadedFiles.map(f => f.name));
       setShowModal(true);
       uploadDocumenti(uploadedFiles, presigned_urls).catch(console.error);
     } catch (err) {

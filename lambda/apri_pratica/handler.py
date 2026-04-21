@@ -4,8 +4,9 @@ POST /apri-pratica
 
 Body JSON:
 {
-  "user_id":    "MARIO_ROSSI",         ← obbligatorio
-  "file_names": ["doc.pdf", "atto.p7m"] ← lista nomi file da caricare
+  "user_id":       "MARIO_ROSSI",           ← obbligatorio
+  "tipo_servizio": "controlli" | "stipendi" ← obbligatorio
+  "file_names":    ["doc.pdf", "atto.p7m"]  ← lista nomi file da caricare
 }
 
 Risposta 200:
@@ -61,7 +62,10 @@ def response(status_code: int, body: dict) -> dict:
     }
 
 
-def create_dynamodb_entry(id_pratica: str, user_id: str) -> None:
+ALLOWED_TIPI = {"controlli", "stipendi"}
+
+
+def create_dynamodb_entry(id_pratica: str, user_id: str, tipo_servizio: str) -> None:
     table = dynamodb.Table(DYNAMODB_TABLE)
     table.put_item(
         Item={
@@ -69,14 +73,15 @@ def create_dynamodb_entry(id_pratica: str, user_id: str) -> None:
             "SK": "METADATA",
             "id_pratica": id_pratica,
             "user_id": user_id,
+            "tipo_servizio": tipo_servizio,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "status": "CREATA",
         }
     )
 
 
-def generate_presigned_url(id_pratica: str, nome: str) -> str:
-    key = f"{S3_PREFIX}/{id_pratica}/input/{nome}"
+def generate_presigned_url(id_pratica: str, tipo_servizio: str, nome: str) -> str:
+    key = f"{S3_PREFIX}/{tipo_servizio}/{id_pratica}/input/{nome}"
     return s3.generate_presigned_url(
         "put_object",
         Params={"Bucket": S3_BUCKET, "Key": key},
@@ -94,10 +99,14 @@ def lambda_handler(event: dict, context) -> dict:
         return response(400, {"error": "Body JSON non valido"})
 
     user_id = body.get("user_id", "").strip()
+    tipo_servizio = body.get("tipo_servizio", "").strip().lower()
     file_names = body.get("file_names", [])
 
     if not user_id:
         return response(400, {"error": "user_id mancante nel body"})
+
+    if tipo_servizio not in ALLOWED_TIPI:
+        return response(400, {"error": f"tipo_servizio deve essere uno tra: {', '.join(ALLOWED_TIPI)}"})
 
     if not file_names:
         return response(400, {"error": "file_names mancante o vuoto"})
@@ -106,14 +115,14 @@ def lambda_handler(event: dict, context) -> dict:
     id_pratica = f"{user_id}_{timestamp}"
 
     try:
-        create_dynamodb_entry(id_pratica, user_id)
+        create_dynamodb_entry(id_pratica, user_id, tipo_servizio)
     except ClientError as e:
         return response(500, {"error": f"Errore DynamoDB: {e.response['Error']['Message']}"})
 
     presigned_urls = []
     for nome in file_names:
         try:
-            url = generate_presigned_url(id_pratica, nome)
+            url = generate_presigned_url(id_pratica, tipo_servizio, nome)
             presigned_urls.append({"nome": nome, "url": url})
         except ClientError as e:
             return response(500, {"error": f"Errore generazione URL per {nome}: {e.response['Error']['Message']}"})
