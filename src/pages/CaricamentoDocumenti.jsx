@@ -129,6 +129,71 @@ function RejectedFileCard({ file }) {
   );
 }
 
+// ── Delete confirmation modal ──────────────────────────────────────────────
+
+function ConfirmDeleteModal({ onConfirm, onCancel }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 300,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div style={{
+        background: 'var(--white)',
+        borderRadius: 8,
+        padding: '40px 48px',
+        width: 480,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+      }}>
+        <h2 id="modal-title" style={{
+          fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px',
+          color: 'var(--text-main)', textAlign: 'center', margin: 0,
+        }}>
+          Vuoi eliminare il documento?
+        </h2>
+        <p style={{
+          fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
+          color: 'var(--text-main)', textAlign: 'center', margin: 0,
+        }}>
+          Se confermi, il documento non sarà più disponibile.
+        </p>
+        <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+          <button
+            onClick={onCancel}
+            style={{
+              height: 48, minWidth: 160, padding: '12px 24px',
+              border: '1px solid var(--blue-main)', borderRadius: 'var(--radius-btn)',
+              background: 'var(--white)', cursor: 'pointer',
+              fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+              letterSpacing: 1, color: 'var(--blue-main)',
+            }}
+          >
+            Annulla
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              height: 48, minWidth: 160, padding: '12px 24px',
+              border: 'none', borderRadius: 'var(--radius-btn)',
+              background: 'var(--blue-main)', cursor: 'pointer',
+              fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+              letterSpacing: 1, color: 'var(--white)',
+            }}
+          >
+            Conferma
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function CaricamentoDocumenti({ onNext, onCancel }) {
@@ -136,6 +201,7 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
   const [isDragOver, setIsDragOver] = useState(false);
   // Each entry: { file, accepted: boolean }
   const [entries, setEntries] = useState([]);
+  const [pendingDeleteIdx, setPendingDeleteIdx] = useState(null);
 
   function handleFiles(newFiles) {
     const incoming = Array.from(newFiles).map(file => ({ file, accepted: isAccepted(file) }));
@@ -149,7 +215,12 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
   }
 
   function handleRemoveAccepted(idx) {
-    setEntries(prev => prev.filter((_, i) => i !== idx));
+    setPendingDeleteIdx(idx);
+  }
+
+  function confirmDelete() {
+    setEntries(prev => prev.filter((_, i) => i !== pendingDeleteIdx));
+    setPendingDeleteIdx(null);
   }
 
   const hasAccepted = entries.some(e => e.accepted);
@@ -259,6 +330,13 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
           </div>
         )}
       </main>
+
+      {pendingDeleteIdx !== null && (
+        <ConfirmDeleteModal
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDeleteIdx(null)}
+        />
+      )}
 
       <div style={{ height: 96 }} />
 
