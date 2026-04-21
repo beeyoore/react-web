@@ -36,6 +36,7 @@ export default function FormField({
   showCalendar = false,
   error,
   onChange,
+  onBlur,
   style,
 }) {
   const [value, setValue] = useState(defaultValue);
@@ -77,7 +78,7 @@ export default function FormField({
           value={value}
           onChange={e => { setValue(e.target.value); onChange?.(e.target.value); }}
           onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onBlur={() => { setFocused(false); onBlur?.(); }}
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-error` : undefined}
           style={{

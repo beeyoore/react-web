@@ -318,7 +318,7 @@ export default function DatePickerField({ id, label, value, onChange, style }) {
           position: 'absolute',
           top: 'calc(100% + 4px)',
           left: 0,
-          zIndex: 200,
+          zIndex: 250,
         }}>
           <CalendarPopup
             value={value}

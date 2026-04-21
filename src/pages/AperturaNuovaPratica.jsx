@@ -19,12 +19,22 @@ function daysSince(date) {
   return Math.floor((Date.now() - date.getTime()) / 86_400_000);
 }
 
+function isValidCF(cf) {
+  return /^[A-Za-z0-9]{16}$/.test(cf);
+}
+
+const CF_ERROR = 'Il codice fiscale non è valido. Verifica che\nquesto abbia 16 caratteri alfanumerici.';
+
 export default function AperturaNuovaPratica({ onNext, onCancel }) {
   const [protocollo, setProtocollo] = useState('');
   const [dataPec, setDataPec] = useState(null);
   const [codiceFiscale, setCodiceFiscale] = useState('');
+  const [cfTouched, setCfTouched] = useState(false);
 
-  const allFilled = protocollo.trim() !== '' && dataPec !== null && codiceFiscale.trim() !== '';
+  const cfValid = isValidCF(codiceFiscale);
+  const cfError = cfTouched && codiceFiscale !== '' && !cfValid ? CF_ERROR : undefined;
+
+  const allFilled = protocollo.trim() !== '' && dataPec !== null && cfValid;
   const days = daysSince(dataPec);
   const showAlert = days !== null && days >= 30;
 
@@ -57,7 +67,7 @@ export default function AperturaNuovaPratica({ onNext, onCancel }) {
         </h2>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingLeft: 'var(--margin-l)' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24 }}>
             <FormField
               id="protocollo"
               label="Numero protocollo del decreto"
@@ -78,6 +88,8 @@ export default function AperturaNuovaPratica({ onNext, onCancel }) {
               placeholder="Es. RSSMRA80A01H501U"
               showInfo
               onChange={setCodiceFiscale}
+              onBlur={() => setCfTouched(true)}
+              error={cfError}
               style={{ width: 269, flexShrink: 0 }}
             />
           </div>
