@@ -20,11 +20,17 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def build_practice_output_prefix(prefix, id_pratica=None):
+ALLOWED_TIPI = {"controlli", "stipendi"}
+
+
+def build_practice_output_prefix(prefix, tipo_servizio=None, id_pratica=None):
     normalized_prefix = prefix.strip("/")
+    parts = ["output", normalized_prefix]
+    if tipo_servizio:
+        parts.append(tipo_servizio)
     if id_pratica:
-        return f"output/{normalized_prefix}/{id_pratica}"
-    return normalized_prefix
+        parts.append(id_pratica)
+    return "/".join(parts)
 
 
 VALID_DOCUMENT_TYPES = [
@@ -218,6 +224,7 @@ def parse_clean_key(key, clean_prefix):
             "id_pratica": parts[1],
         }
 
+    # phase_first: output/{clean_prefix}/{id_pratica}/{filename}
     if (
         len(parts) == 4
         and parts[0] == "output"
@@ -229,14 +236,32 @@ def parse_clean_key(key, clean_prefix):
         return {
             "filename": filename,
             "base_name": base_name,
+            "tipo_servizio": None,
             "id_pratica": parts[2],
+        }
+
+    # practice_with_tipo: output/{clean_prefix}/{tipo_servizio}/{id_pratica}/{filename}
+    if (
+        len(parts) == 5
+        and parts[0] == "output"
+        and parts[1] == clean_prefix
+        and parts[2] in ALLOWED_TIPI
+        and parts[4].lower().endswith(".json")
+    ):
+        filename = parts[4]
+        base_name = filename[:-5] if filename.lower().endswith(".json") else filename
+        return {
+            "filename": filename,
+            "base_name": base_name,
+            "tipo_servizio": parts[2],
+            "id_pratica": parts[3],
         }
 
     return None
 
 
-def build_output_key(classified_prefix, base_name, id_pratica=None):
-    scoped_prefix = build_practice_output_prefix(classified_prefix, id_pratica)
+def build_output_key(classified_prefix, base_name, tipo_servizio=None, id_pratica=None):
+    scoped_prefix = build_practice_output_prefix(classified_prefix, tipo_servizio, id_pratica)
     return f"{scoped_prefix}/{base_name}.classification.json"
 
 
@@ -459,6 +484,7 @@ def lambda_handler(event, context):
         output_key = build_output_key(
             classified_prefix,
             parsed["base_name"],
+            parsed.get("tipo_servizio"),
             parsed.get("id_pratica"),
         )
         existing_output = load_json_object(bucket, output_key)
@@ -541,6 +567,8 @@ def lambda_handler(event, context):
                 "sourceKey": key,
                 "outputKey": output_key,
                 "documentType": output["documentType"],
+                "tipoServizio": parsed.get("tipo_servizio"),
+                "idPratica": parsed.get("id_pratica"),
             }
         )
 

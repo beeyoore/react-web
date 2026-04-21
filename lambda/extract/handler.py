@@ -348,14 +348,19 @@ def load_schema_for_category(categoria_personale: str) -> dict:
 # S3 / document helpers
 # ---------------------------------------------------------------------------
 
+ALLOWED_TIPI_FLUSSO = {"controlli", "stipendi"}
+
+
 def parse_classified_key(key: str, classified_prefix: str) -> dict | None:
     parts = key.split("/")
 
+    # flat: {classified_prefix}/{filename}
     if len(parts) == 2 and parts[0] == classified_prefix and parts[1].lower().endswith(".classification.json"):
         filename = parts[1]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "id_pratica": None}
+        return {"filename": filename, "base_name": base_name, "tipo_flusso": None, "id_pratica": None}
 
+    # legacy_practice: pratiche/{id_pratica}/output/{classified_prefix}/{filename}
     if (
         len(parts) == 5
         and parts[0] == "pratiche"
@@ -365,8 +370,9 @@ def parse_classified_key(key: str, classified_prefix: str) -> dict | None:
     ):
         filename = parts[4]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "id_pratica": parts[1]}
+        return {"filename": filename, "base_name": base_name, "tipo_flusso": None, "id_pratica": parts[1]}
 
+    # phase_first: output/{classified_prefix}/{id_pratica}/{filename}
     if (
         len(parts) == 4
         and parts[0] == "output"
@@ -375,7 +381,19 @@ def parse_classified_key(key: str, classified_prefix: str) -> dict | None:
     ):
         filename = parts[3]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "id_pratica": parts[2]}
+        return {"filename": filename, "base_name": base_name, "tipo_flusso": None, "id_pratica": parts[2]}
+
+    # practice_with_tipo: output/{classified_prefix}/{tipo_flusso}/{id_pratica}/{filename}
+    if (
+        len(parts) == 5
+        and parts[0] == "output"
+        and parts[1] == classified_prefix
+        and parts[2] in ALLOWED_TIPI_FLUSSO
+        and parts[4].lower().endswith(".classification.json")
+    ):
+        filename = parts[4]
+        base_name = filename[: -len(".classification.json")]
+        return {"filename": filename, "base_name": base_name, "tipo_flusso": parts[2], "id_pratica": parts[3]}
 
     return None
 
@@ -391,19 +409,22 @@ def load_json_object(bucket: str, key: str) -> dict | None:
     return json.loads(body)
 
 
-def _classified_prefixes_for_pratica(classified_prefix: str, id_pratica: str) -> list[str]:
-    return [
+def _classified_prefixes_for_pratica(classified_prefix: str, id_pratica: str, tipo_flusso: str | None = None) -> list[str]:
+    prefixes = [
         f"output/{classified_prefix}/{id_pratica}/",
         f"pratiche/{id_pratica}/output/{classified_prefix}/",
     ]
+    if tipo_flusso:
+        prefixes.insert(0, f"output/{classified_prefix}/{tipo_flusso}/{id_pratica}/")
+    return prefixes
 
 
-def list_classified_keys_for_pratica(bucket: str, classified_prefix: str, id_pratica: str) -> list[str]:
+def list_classified_keys_for_pratica(bucket: str, classified_prefix: str, id_pratica: str, tipo_flusso: str | None = None) -> list[str]:
     keys: list[str] = []
     seen = set()
     paginator = s3.get_paginator("list_objects_v2")
 
-    for prefix in _classified_prefixes_for_pratica(classified_prefix, id_pratica):
+    for prefix in _classified_prefixes_for_pratica(classified_prefix, id_pratica, tipo_flusso):
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for item in page.get("Contents", []):
                 key = item.get("Key")
@@ -2745,6 +2766,8 @@ def lambda_handler(event: dict, context) -> dict:
             skipped.append({"key": classified_key, "reason": "invalid_classified_key"})
             continue
 
+        tipo_flusso = parsed.get("tipo_flusso")
+
         classified_document = load_json_object(bucket, classified_key)
         if not classified_document:
             logger.info("entity_extractor_skip key=%s reason=missing_classified_document", classified_key)
@@ -2857,7 +2880,7 @@ def lambda_handler(event: dict, context) -> dict:
             logger.info("entity_extractor_skip key=%s reason=document_already_extracted existing_sk=%s", classified_key, existing_item.get("SK"))
             pending_classified_triggered = 0
             if categoria_just_determined:
-                classified_keys = list_classified_keys_for_pratica(bucket, classified_prefix, id_pratica)
+                classified_keys = list_classified_keys_for_pratica(bucket, classified_prefix, id_pratica, tipo_flusso)
                 pending_classified_triggered = trigger_extraction_for_classified_keys(
                     function_name=extractor_function_name,
                     bucket=bucket,
@@ -2995,6 +3018,7 @@ def lambda_handler(event: dict, context) -> dict:
                 "schemaSection": schema_section_name,
                 "categoriaPersonale": categoria_personale,
                 "schemaFile": schema_filename_for_categoria(categoria_personale),
+                "tipoFlusso": tipo_flusso,
                 "metadataState": metadata_state,
                 "serviziIngestorTriggered": trigger_sent,
                 "pendingClassifiedTriggered": pending_classified_triggered,
