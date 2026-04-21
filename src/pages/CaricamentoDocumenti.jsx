@@ -11,16 +11,38 @@ const STEPS = [
   { label: 'Riepilogo',             sublabel: 'Da verificare' },
 ];
 
+const ACCEPTED_EXTS = ['.pdf', '.p7m'];
+
+function isAccepted(file) {
+  return ACCEPTED_EXTS.some(ext => file.name.toLowerCase().endsWith(ext));
+}
+
+function formatSize(bytes) {
+  const mb = bytes / (1024 * 1024);
+  return mb.toFixed(1).replace('.', ',') + ' MB';
+}
+
+function getExt(name) {
+  const parts = name.split('.');
+  return parts.length > 1 ? parts.pop().toUpperCase() : '';
+}
+
+function getBaseName(name) {
+  const parts = name.split('.');
+  if (parts.length > 1) parts.pop();
+  return parts.join('.');
+}
+
+// ── Icons ──────────────────────────────────────────────────────────────────
+
 function UploadIcon() {
   return (
     <svg width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden="true">
       <circle cx="40" cy="40" r="39" stroke="var(--grey-border)" strokeWidth="2" />
       <path
         d="M40 52V30M40 30L32 38M40 30L48 38"
-        stroke="var(--blue-main)"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        stroke="var(--blue-main)" strokeWidth="2.5"
+        strokeLinecap="round" strokeLinejoin="round"
       />
     </svg>
   );
@@ -35,53 +57,27 @@ function CloseCircleIcon() {
   );
 }
 
-function formatSize(bytes) {
-  const mb = bytes / (1024 * 1024);
-  return mb.toFixed(1).replace('.', ',') + ' MB';
-}
+// ── File cards ─────────────────────────────────────────────────────────────
 
-function getExt(name) {
-  return name.split('.').pop().toUpperCase();
-}
-
-function FileCard({ file, onRemove }) {
+function AcceptedFileCard({ file, onRemove }) {
   return (
-    <div style={{
-      flex: '1 0 0',
-      minWidth: 0,
-      background: '#e5f2ff',
-      borderRadius: 8,
-    }}>
+    <div style={{ flex: '1 0 0', minWidth: 0, background: '#e5f2ff', borderRadius: 8 }}>
       <div style={{
-        background: 'var(--grey-bg)',
-        borderRadius: 8,
+        background: 'var(--grey-bg)', borderRadius: 8,
         padding: '16px 24px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 24,
-        width: '100%',
+        display: 'flex', alignItems: 'center', gap: 24,
       }}>
         <div style={{ flex: '1 0 0', minWidth: 0 }}>
           <p style={{
-            fontSize: 22,
-            fontWeight: 600,
-            letterSpacing: 1,
-            lineHeight: '28px',
-            color: 'var(--text-main)',
-            marginBottom: 4,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '28px',
+            color: 'var(--text-main)', marginBottom: 4,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {file.name}
           </p>
           <p style={{
-            fontSize: 18,
-            fontWeight: 300,
-            letterSpacing: 1,
-            lineHeight: '28px',
-            color: 'var(--text-main)',
-            whiteSpace: 'nowrap',
+            fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
+            color: 'var(--text-main)', whiteSpace: 'nowrap',
           }}>
             {formatSize(file.size)} - {getExt(file.name)}
           </p>
@@ -90,13 +86,8 @@ function FileCard({ file, onRemove }) {
           onClick={onRemove}
           aria-label={`Rimuovi ${file.name}`}
           style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 8,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            background: 'none', border: 'none', cursor: 'pointer',
+            padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}
         >
@@ -107,16 +98,48 @@ function FileCard({ file, onRemove }) {
   );
 }
 
+function RejectedFileCard({ file }) {
+  const ext = getExt(file.name);
+  const baseName = getBaseName(file.name);
+
+  return (
+    <div style={{ flex: '1 0 0', minWidth: 0, background: '#e5f2ff', borderRadius: 8 }}>
+      <div style={{ background: '#fff6f6', borderRadius: 8, overflow: 'hidden' }}>
+        {/* Red progress bar */}
+        <div style={{ height: 8, background: '#eb0000', width: '100%' }} />
+
+        <div style={{ padding: '16px 24px' }}>
+          <p style={{
+            fontSize: 22, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
+            color: 'var(--text-main)', marginBottom: 4,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            <strong style={{ fontWeight: 600 }}>Rifiutato: </strong>
+            {baseName}<span>.{ext}</span>
+          </p>
+          <p style={{
+            fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
+            color: 'var(--text-main)',
+          }}>
+            Il formato del documento non è supportato.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
+
 export default function CaricamentoDocumenti({ onNext, onCancel }) {
   const inputRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [files, setFiles] = useState([]);
+  // Each entry: { file, accepted: boolean }
+  const [entries, setEntries] = useState([]);
 
   function handleFiles(newFiles) {
-    const accepted = Array.from(newFiles).filter(f =>
-      f.name.toLowerCase().endsWith('.pdf') || f.name.toLowerCase().endsWith('.p7m')
-    );
-    setFiles(prev => [...prev, ...accepted]);
+    const incoming = Array.from(newFiles).map(file => ({ file, accepted: isAccepted(file) }));
+    setEntries(prev => [...prev, ...incoming]);
   }
 
   function handleDrop(e) {
@@ -125,16 +148,17 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
     handleFiles(e.dataTransfer.files);
   }
 
-  function handleRemove(index) {
-    setFiles(prev => prev.filter((_, i) => i !== index));
+  function handleRemoveAccepted(idx) {
+    setEntries(prev => prev.filter((_, i) => i !== idx));
   }
 
-  const hasFiles = files.length > 0;
+  const hasAccepted = entries.some(e => e.accepted);
+  const hasEntries  = entries.length > 0;
 
-  // Group files into rows of 2
+  // Group all entries into rows of 2 for the grid
   const rows = [];
-  for (let i = 0; i < files.length; i += 2) {
-    rows.push(files.slice(i, i + 2));
+  for (let i = 0; i < entries.length; i += 2) {
+    rows.push(entries.slice(i, i + 2));
   }
 
   return (
@@ -145,41 +169,25 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
         <SubheaderMenu items={['Home', 'Assistenza']} />
       </header>
 
-      <Stepper
-        title="Apertura pratica"
-        currentStep={2}
-        totalSteps={3}
-        steps={STEPS}
-      />
+      <Stepper title="Apertura pratica" currentStep={2} totalSteps={3} steps={STEPS} />
 
       <main style={{ padding: '40px var(--margin-xl)', flex: 1 }}>
         {/* Title block */}
         <div style={{ paddingLeft: 'var(--margin-l)', marginBottom: 24 }}>
           <h2 style={{
-            fontSize: 32,
-            fontWeight: 600,
-            letterSpacing: 1,
-            lineHeight: '42px',
-            color: 'var(--text-main)',
-            marginBottom: 8,
+            fontSize: 32, fontWeight: 600, letterSpacing: 1, lineHeight: '42px',
+            color: 'var(--text-main)', marginBottom: 8,
           }}>
             Caricamento documenti
           </h2>
-          <p style={{
-            fontSize: 18,
-            fontWeight: 300,
-            letterSpacing: 1,
-            lineHeight: '28px',
-            color: 'var(--text-main)',
-          }}>
+          <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
             Carica tutti i documenti necessari alla lavorazione della pratica.
           </p>
         </div>
 
-        {/* Upload drop zone */}
+        {/* Drop zone */}
         <div
-          role="button"
-          tabIndex={0}
+          role="button" tabIndex={0}
           aria-label="Area caricamento documenti"
           onClick={() => inputRef.current?.click()}
           onKeyDown={e => e.key === 'Enter' && inputRef.current?.click()}
@@ -191,77 +199,59 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
             border: `1px dashed ${isDragOver ? 'var(--blue-main)' : 'var(--grey-border)'}`,
             borderRadius: 'var(--radius-input)',
             background: isDragOver ? '#f0f7ff' : 'var(--white)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 24,
-            padding: '32px 24px',
-            cursor: 'pointer',
-            transition: 'border-color 0.15s, background 0.15s',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: 24, padding: '32px 24px',
+            cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s',
           }}
         >
           <UploadIcon />
           <div style={{ textAlign: 'center' }}>
             <p style={{
-              fontSize: 22,
-              fontWeight: 600,
-              letterSpacing: 1,
-              lineHeight: '28px',
-              color: 'var(--text-main)',
-              marginBottom: 4,
+              fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '28px',
+              color: 'var(--text-main)', marginBottom: 4,
             }}>
               Trascina qui i tuoi documenti oppure{' '}
-              <span style={{ color: 'var(--blue-main)', textDecoration: 'underline' }}>
-                selezionali
-              </span>
+              <span style={{ color: 'var(--blue-main)', textDecoration: 'underline' }}>selezionali</span>
               {' '}dal tuo computer
             </p>
-            <p style={{
-              fontSize: 18,
-              fontWeight: 300,
-              letterSpacing: 1,
-              lineHeight: '28px',
-              color: 'var(--text-main)',
-            }}>
+            <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
               Formati accettati: PDF, P7M (max xMb)
             </p>
           </div>
         </div>
 
         <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,.p7m"
-          multiple
+          ref={inputRef} type="file" accept="*" multiple
           style={{ display: 'none' }}
           onChange={e => { handleFiles(e.target.files); e.target.value = ''; }}
         />
 
-        {/* Uploaded files grid */}
-        {hasFiles && (
+        {/* Files grid */}
+        {hasEntries && (
           <div style={{ marginLeft: 'var(--margin-l)', marginTop: 32 }}>
             <h3 style={{
-              fontSize: 26,
-              fontWeight: 600,
-              letterSpacing: 1,
-              lineHeight: '34px',
-              color: 'var(--text-main)',
-              marginBottom: 16,
+              fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px',
+              color: 'var(--text-main)', marginBottom: 16,
             }}>
               Documenti caricati
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {rows.map((row, rowIdx) => (
                 <div key={rowIdx} style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
-                  {row.map((file, colIdx) => (
-                    <FileCard
-                      key={rowIdx * 2 + colIdx}
-                      file={file}
-                      onRemove={e => { e.stopPropagation(); handleRemove(rowIdx * 2 + colIdx); }}
-                    />
-                  ))}
-                  {/* Empty placeholder to keep single items half-width */}
+                  {row.map((entry, colIdx) => {
+                    const globalIdx = rowIdx * 2 + colIdx;
+                    return entry.accepted
+                      ? (
+                        <AcceptedFileCard
+                          key={globalIdx}
+                          file={entry.file}
+                          onRemove={e => { e.stopPropagation(); handleRemoveAccepted(globalIdx); }}
+                        />
+                      ) : (
+                        <RejectedFileCard key={globalIdx} file={entry.file} />
+                      );
+                  })}
+                  {/* Spacer so single items stay half-width */}
                   {row.length === 1 && <div style={{ flex: '1 0 0' }} />}
                 </div>
               ))}
@@ -275,7 +265,7 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
       <NavigationToolbar
         onCancel={onCancel}
         onNext={onNext}
-        nextDisabled={!hasFiles}
+        nextDisabled={!hasAccepted}
       />
     </div>
   );
