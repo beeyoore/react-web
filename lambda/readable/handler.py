@@ -13,12 +13,17 @@ s3 = boto3.client("s3")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+ALLOWED_TIPI = {"controlli", "stipendi"}
 
-def build_practice_output_prefix(prefix, id_pratica=None):
+
+def build_practice_output_prefix(prefix, tipo_servizio=None, id_pratica=None):
     normalized_prefix = prefix.strip("/")
+    parts = ["output", normalized_prefix]
+    if tipo_servizio:
+        parts.append(tipo_servizio)
     if id_pratica:
-        return f"output/{normalized_prefix}/{id_pratica}"
-    return normalized_prefix
+        parts.append(id_pratica)
+    return "/".join(parts)
 
 
 def build_legacy_practice_output_prefix(prefix, id_pratica=None):
@@ -31,6 +36,7 @@ def build_legacy_practice_output_prefix(prefix, id_pratica=None):
 def parse_raw_key(key, raw_prefix):
     parts = key.split("/")
 
+    # flat: {raw_prefix}/{source_file}/{job_id}/{part}
     if len(parts) == 4 and parts[0] == raw_prefix:
         part_name = parts[3]
         if not part_name.isdigit():
@@ -39,11 +45,13 @@ def parse_raw_key(key, raw_prefix):
         return {
             "source_file": parts[1],
             "job_id": parts[2],
+            "tipo_servizio": None,
             "id_pratica": None,
             "raw_prefix": raw_prefix,
             "path_style": "flat",
         }
 
+    # legacy_practice: pratiche/{id_pratica}/output/{raw_prefix}/{source_file}/{job_id}/{part}
     if (
         len(parts) == 7
         and parts[0] == "pratiche"
@@ -54,11 +62,13 @@ def parse_raw_key(key, raw_prefix):
         return {
             "source_file": parts[4],
             "job_id": parts[5],
+            "tipo_servizio": None,
             "id_pratica": parts[1],
             "raw_prefix": "/".join(parts[:4]),
             "path_style": "legacy_practice",
         }
 
+    # phase_first: output/{raw_prefix}/{id_pratica}/{source_file}/{job_id}/{part}
     if (
         len(parts) == 6
         and parts[0] == "output"
@@ -68,9 +78,27 @@ def parse_raw_key(key, raw_prefix):
         return {
             "source_file": parts[3],
             "job_id": parts[4],
+            "tipo_servizio": None,
             "id_pratica": parts[2],
             "raw_prefix": "/".join(parts[:3]),
             "path_style": "phase_first",
+        }
+
+    # practice_with_tipo: output/{raw_prefix}/{tipo_servizio}/{id_pratica}/{source_file}/{job_id}/{part}
+    if (
+        len(parts) == 7
+        and parts[0] == "output"
+        and parts[1] == raw_prefix
+        and parts[2] in ALLOWED_TIPI
+        and parts[6].isdigit()
+    ):
+        return {
+            "source_file": parts[4],
+            "job_id": parts[5],
+            "tipo_servizio": parts[2],
+            "id_pratica": parts[3],
+            "raw_prefix": "/".join(parts[:4]),
+            "path_style": "practice_with_tipo",
         }
 
     return None
@@ -485,8 +513,8 @@ def build_consolidated_raw_document(raw_parts, source_file, job_id, part_keys, p
     }
 
 
-def build_context_key(document_context_prefix, source_file, id_pratica=None):
-    scoped_prefix = build_practice_output_prefix(document_context_prefix, id_pratica)
+def build_context_key(document_context_prefix, source_file, tipo_servizio=None, id_pratica=None):
+    scoped_prefix = build_practice_output_prefix(document_context_prefix, tipo_servizio, id_pratica)
     return f"{scoped_prefix}/{source_file}.json"
 
 
@@ -495,13 +523,13 @@ def build_legacy_context_key(document_context_prefix, source_file, id_pratica=No
     return f"{scoped_prefix}/{source_file}.json"
 
 
-def build_consolidated_raw_key(raw_consolidated_prefix, source_file, id_pratica=None):
-    scoped_prefix = build_practice_output_prefix(raw_consolidated_prefix, id_pratica)
+def build_consolidated_raw_key(raw_consolidated_prefix, source_file, tipo_servizio=None, id_pratica=None):
+    scoped_prefix = build_practice_output_prefix(raw_consolidated_prefix, tipo_servizio, id_pratica)
     return f"{scoped_prefix}/{source_file}.json"
 
 
-def build_output_key(clean_prefix, source_file, id_pratica=None):
-    scoped_prefix = build_practice_output_prefix(clean_prefix, id_pratica)
+def build_output_key(clean_prefix, source_file, tipo_servizio=None, id_pratica=None):
+    scoped_prefix = build_practice_output_prefix(clean_prefix, tipo_servizio, id_pratica)
     return f"{scoped_prefix}/{source_file}.json"
 
 
@@ -516,6 +544,11 @@ def apply_document_context(document, document_context, context_key):
     if id_pratica:
         enriched_document["id_pratica"] = id_pratica
         metadata["id_pratica"] = id_pratica
+
+    tipo_servizio = document_context.get("tipo_servizio")
+    if tipo_servizio:
+        enriched_document["tipo_servizio"] = tipo_servizio
+        metadata["tipo_servizio"] = tipo_servizio
 
     source_bucket = document_context.get("sourceBucket")
     source_key = document_context.get("sourceKey")
@@ -584,20 +617,28 @@ def lambda_handler(event, context):
             raw_parts["status"],
         )
 
-        context_key = build_context_key(document_context_prefix, parsed["source_file"], parsed.get("id_pratica"))
+        tipo_servizio = parsed.get("tipo_servizio")
+        id_pratica = parsed.get("id_pratica")
+
+        context_key = build_context_key(document_context_prefix, parsed["source_file"], tipo_servizio, id_pratica)
         document_context = load_json_object(bucket, context_key)
         if not document_context and parsed.get("path_style") == "legacy_practice":
-            legacy_context_key = build_legacy_context_key(document_context_prefix, parsed["source_file"], parsed.get("id_pratica"))
+            legacy_context_key = build_legacy_context_key(document_context_prefix, parsed["source_file"], id_pratica)
             legacy_document_context = load_json_object(bucket, legacy_context_key)
             if legacy_document_context:
                 context_key = legacy_context_key
                 document_context = legacy_document_context
 
+        # Integra tipo_servizio dal document_context se non ricavabile dal path
+        if document_context and not tipo_servizio:
+            tipo_servizio = document_context.get("tipo_servizio")
+
         if document_context:
             logger.info(
-                "readable_context_loaded source_file=%s context_key=%s id_pratica=%s",
+                "readable_context_loaded source_file=%s context_key=%s tipo_servizio=%s id_pratica=%s",
                 parsed["source_file"],
                 context_key,
+                tipo_servizio,
                 document_context.get("id_pratica"),
             )
         else:
@@ -615,7 +656,7 @@ def lambda_handler(event, context):
             pages_present,
         )
         consolidated_raw_document = apply_document_context(consolidated_raw_document, document_context, context_key)
-        consolidated_raw_key = build_consolidated_raw_key(raw_consolidated_prefix, parsed["source_file"], parsed.get("id_pratica"))
+        consolidated_raw_key = build_consolidated_raw_key(raw_consolidated_prefix, parsed["source_file"], tipo_servizio, id_pratica)
         existing_raw_document = load_json_object(bucket, consolidated_raw_key)
         if not existing_raw_document or existing_raw_document.get("jobId") != parsed["job_id"]:
             logger.info(
@@ -648,7 +689,7 @@ def lambda_handler(event, context):
         cleaned_document = apply_document_context(cleaned_document, document_context, context_key)
         cleaned_document["sourceRawConsolidatedKey"] = consolidated_raw_key
 
-        output_key = build_output_key(clean_prefix, parsed["source_file"], parsed.get("id_pratica"))
+        output_key = build_output_key(clean_prefix, parsed["source_file"], tipo_servizio, id_pratica)
         existing_document = load_json_object(bucket, output_key)
         if existing_document and existing_document.get("jobId") == parsed["job_id"]:
             logger.info(
@@ -681,6 +722,7 @@ def lambda_handler(event, context):
             "consolidatedRawKey": consolidated_raw_key,
             "outputKey": output_key,
             "jobId": parsed["job_id"],
+            "tipoServizio": tipo_servizio,
             "idPratica": (document_context or {}).get("id_pratica"),
         })
 
