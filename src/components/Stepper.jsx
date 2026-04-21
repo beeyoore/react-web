@@ -4,7 +4,7 @@ function StepBubble({ number, active, completed }) {
       <div style={{
         width: 24, height: 24, borderRadius: 1000, flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--teal)',
+        background: '#468041',
       }}>
         <svg width="13" height="10" viewBox="0 0 13 10" fill="none">
           <path d="M1.5 5L5 8.5L11.5 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
