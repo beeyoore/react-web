@@ -342,7 +342,7 @@ export default function CaricamentoDocumenti({ onNext, onCancel }) {
 
       <NavigationToolbar
         onCancel={onCancel}
-        onNext={onNext}
+        onNext={() => onNext(entries.filter(e => e.accepted).map(e => e.file))}
         nextDisabled={!hasAccepted}
       />
     </div>

@@ -8,7 +8,7 @@ function ArrowRightIcon({ color }) {
   );
 }
 
-export default function NavigationToolbar({ onCancel, onNext, nextDisabled = true }) {
+export default function NavigationToolbar({ onCancel, onNext, nextDisabled = true, nextLabel = 'Prosegui' }) {
   return (
     <footer style={{
       position: 'fixed',
@@ -62,7 +62,7 @@ export default function NavigationToolbar({ onCancel, onNext, nextDisabled = tru
           transition: 'background 0.15s, color 0.15s',
         }}
       >
-        Prosegui
+        {nextLabel}
         <ArrowRightIcon color={nextDisabled ? 'var(--grey-dim)' : 'var(--white)'} />
       </button>
     </footer>

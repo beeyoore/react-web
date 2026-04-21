@@ -95,7 +95,7 @@ export default function AperturaNuovaPratica({ onNext, onCancel }) {
 
       <NavigationToolbar
         onCancel={onCancel}
-        onNext={onNext}
+        onNext={() => onNext({ protocollo, dataPec, codiceFiscale })}
         nextDisabled={!allFilled}
       />
     </div>
