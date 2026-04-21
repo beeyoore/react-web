@@ -10,6 +10,7 @@ import Scr13AperturaNuovaPratica from './pages/Scr13AperturaNuovaPratica';
 // Flusso "Stipendi"
 import StipAperturaNuovaPratica from './pages/stipendi/AperturaNuovaPratica';
 import StipCaricamentoDocumenti from './pages/stipendi/CaricamentoDocumenti';
+import StipRiepilogoPratica from './pages/stipendi/RiepilogoPratica';
 
 const userName = `${userProfile.nome} ${userProfile.cognome}`;
 const profilo = (userProfile.profilo || '').toLowerCase();
@@ -35,10 +36,18 @@ export default function App() {
         onCancel={() => setStep(0)}
       />
     );
-    return (
+    if (step === 2) return (
       <StipCaricamentoDocumenti
         praticeData={praticeData}
         onNext={(files) => { setUploadedFiles(files); setStep(3); }}
+        onCancel={() => setStep(0)}
+      />
+    );
+    return (
+      <StipRiepilogoPratica
+        praticeData={praticeData}
+        uploadedFiles={uploadedFiles}
+        userName={userName}
         onCancel={() => setStep(0)}
       />
     );
