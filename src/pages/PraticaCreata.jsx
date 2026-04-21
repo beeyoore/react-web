@@ -1,15 +1,6 @@
-import { useState } from 'react';
 import PreHeader from '../components/PreHeader';
 import TopHeader from '../components/TopHeader';
 import SubheaderMenu from '../components/SubheaderMenu';
-import Stepper from '../components/Stepper';
-import NavigationToolbar from '../components/NavigationToolbar';
-
-const STEPS = [
-  { label: 'Dati della pratica',    sublabel: 'Completato' },
-  { label: 'Caricamento documenti', sublabel: 'Completato' },
-  { label: 'Riepilogo',             sublabel: 'Da verificare' },
-];
 
 const MONTHS_IT = [
   'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
@@ -40,7 +31,17 @@ function formatSize(bytes) {
   return mb.toFixed(1).replace('.', ',') + 'mb';
 }
 
-// ── Icons ──────────────────────────────────────────────────────────────────
+function CheckCircleIcon() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <circle cx="24" cy="24" r="23" stroke="white" strokeWidth="2" />
+      <path
+        d="M14 24L21 31L34 17"
+        stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function FileIcon() {
   return (
@@ -65,95 +66,6 @@ function BulletDot() {
   );
 }
 
-function CheckCircleIcon() {
-  return (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-      <circle cx="32" cy="32" r="32" fill="var(--teal)" />
-      <path
-        d="M20 32L28 40L44 24"
-        stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-// ── Success modal ──────────────────────────────────────────────────────────
-
-function SuccessModal({ onHome, onDetail }) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="success-modal-title"
-      style={{
-        position: 'fixed', inset: 0, zIndex: 300,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-    >
-      <div style={{
-        background: 'var(--white)',
-        borderRadius: 12,
-        padding: '40px 48px',
-        width: 727,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-      }}>
-        <CheckCircleIcon />
-
-        <h2 id="success-modal-title" style={{
-          fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px',
-          color: 'var(--text-main)', textAlign: 'center', margin: 0,
-        }}>
-          Pratica creata con successo!
-        </h2>
-
-        <p style={{
-          fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
-          color: 'var(--text-main)', textAlign: 'center', margin: 0,
-        }}>
-          La pratica è stata aperta correttamente.<br />
-          Gli esiti dei controlli saranno disponibili<br />
-          in Homepage appena completati.
-        </p>
-
-        <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%' }}>
-          <button
-            onClick={onHome}
-            style={{
-              flex: 1,
-              height: 48, padding: '12px 16px',
-              border: '1px solid var(--blue-main)',
-              borderRadius: 'var(--radius-btn)',
-              background: 'var(--white)', cursor: 'pointer',
-              fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
-              letterSpacing: 1, color: 'var(--blue-main)',
-            }}
-          >
-            Torna alla Homepage
-          </button>
-          <button
-            onClick={onDetail}
-            style={{
-              flex: 1,
-              height: 48, padding: '12px 16px',
-              border: 'none',
-              borderRadius: 'var(--radius-btn)',
-              background: 'var(--blue-main)', cursor: 'pointer',
-              fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
-              letterSpacing: 1, color: 'var(--white)',
-            }}
-          >
-            Vai al dettaglio pratica
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Read-only field ────────────────────────────────────────────────────────
-
 function ReadOnlyField({ label, value, style }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
@@ -172,8 +84,6 @@ function ReadOnlyField({ label, value, style }) {
     </div>
   );
 }
-
-// ── Document card ──────────────────────────────────────────────────────────
 
 function DocumentCard({ file }) {
   const today = new Date();
@@ -209,10 +119,7 @@ function DocumentCard({ file }) {
   );
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────
-
-export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles = [], onCancel }) {
-  const [showModal, setShowModal] = useState(false);
+export default function PraticaCreata({ praticeData, uploadedFiles = [], onHome }) {
   const { protocollo = '', dataPec = null, codiceFiscale = '' } = praticeData || {};
 
   const rows = [];
@@ -228,7 +135,34 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
         <SubheaderMenu items={['Home', 'Assistenza']} />
       </header>
 
-      <Stepper title="Apertura pratica" currentStep={3} totalSteps={3} steps={STEPS} />
+      {/* Success banner */}
+      <div style={{
+        background: '#02625e',
+        padding: '40px var(--margin-xl)',
+      }}>
+        <div style={{
+          paddingLeft: 'var(--margin-l)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 24,
+        }}>
+          <CheckCircleIcon />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h1 style={{
+              fontSize: 32, fontWeight: 600, letterSpacing: 1, lineHeight: '42px',
+              color: 'white', margin: 0,
+            }}>
+              Pratica creata con successo
+            </h1>
+            <p style={{
+              fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px',
+              color: 'white', margin: 0,
+            }}>
+              La pratica è stata creata e i controlli sono stati avviati. Riceverai aggiornamenti sullo stato della lavorazione.
+            </p>
+          </div>
+        </div>
+      </div>
 
       <main style={{ padding: '40px var(--margin-xl)', flex: 1 }}>
         {/* Dati della pratica */}
@@ -279,23 +213,25 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
             </div>
           </div>
         )}
+
+        {/* Back to home */}
+        <div style={{ paddingLeft: 'var(--margin-l)', marginTop: 40 }}>
+          <button
+            onClick={onHome}
+            style={{
+              height: 48, padding: '12px 24px',
+              border: '1px solid var(--blue-main)',
+              borderRadius: 'var(--radius-btn)',
+              background: 'var(--white)',
+              cursor: 'pointer',
+              fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+              letterSpacing: 1, color: 'var(--blue-main)',
+            }}
+          >
+            Torna alla home
+          </button>
+        </div>
       </main>
-
-      <div style={{ height: 96 }} />
-
-      <NavigationToolbar
-        onCancel={onCancel}
-        onNext={() => setShowModal(true)}
-        nextDisabled={false}
-        nextLabel="Crea pratica e avvia i controlli"
-      />
-
-      {showModal && (
-        <SuccessModal
-          onHome={onCancel}
-          onDetail={onCancel}
-        />
-      )}
     </div>
   );
 }

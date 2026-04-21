@@ -148,7 +148,7 @@ function ConfirmDeleteModal({ onConfirm, onCancel }) {
         background: 'var(--white)',
         borderRadius: 8,
         padding: '40px 48px',
-        width: 480,
+        width: 727,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
       }}>
         <h2 id="modal-title" style={{
