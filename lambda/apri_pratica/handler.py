@@ -4,22 +4,32 @@ POST /apri-pratica
 
 Body JSON:
 {
-  "user_id": "MARIO_ROSSI",   ← obbligatorio, passato dal frontend
-  "documenti": [
-    { "nome": "doc.pdf", "contenuto": "<base64>" },
-    ...
+  "user_id":    "MARIO_ROSSI",         ← obbligatorio
+  "file_names": ["doc.pdf", "atto.p7m"] ← lista nomi file da caricare
+}
+
+Risposta 200:
+{
+  "id_pratica": "MARIO_ROSSI_20260421T143022Z",
+  "status": "CREATA",
+  "presigned_urls": [
+    { "nome": "doc.pdf",  "url": "https://s3.amazonaws.com/..." },
+    { "nome": "atto.p7m", "url": "https://s3.amazonaws.com/..." }
   ]
 }
 
+Il frontend usa i presigned_urls per fare PUT direttamente su S3,
+senza passare per API Gateway (nessun limite di payload).
+
 Env vars (opzionali, hanno default):
-  DYNAMODB_TABLE – default: RTS_Pratiche
-  S3_BUCKET      – default: igit-chcklstai-s3-input-euc1
-  S3_PREFIX      – default: pratiche
-  REGION         – default: eu-central-1
+  DYNAMODB_TABLE      – default: RTS_Pratiche
+  S3_BUCKET           – default: igit-chcklstai-s3-input-euc1
+  S3_PREFIX           – default: pratiche
+  REGION              – default: eu-central-1
+  PRESIGNED_URL_EXPIRY – secondi validità URL, default: 300
 """
 
 import json
-import base64
 import os
 from datetime import datetime, timezone
 
@@ -30,6 +40,7 @@ REGION = os.environ.get("REGION", "eu-central-1")
 DYNAMODB_TABLE = os.environ.get("DYNAMODB_TABLE", "RTS_Pratiche")
 S3_BUCKET = os.environ.get("S3_BUCKET", "igit-chcklstai-s3-input-euc1")
 S3_PREFIX = os.environ.get("S3_PREFIX", "pratiche")
+PRESIGNED_URL_EXPIRY = int(os.environ.get("PRESIGNED_URL_EXPIRY", "300"))
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 s3 = boto3.client("s3", region_name=REGION)
@@ -64,15 +75,16 @@ def create_dynamodb_entry(id_pratica: str, user_id: str) -> None:
     )
 
 
-def upload_document(id_pratica: str, nome: str, contenuto_b64: str) -> None:
-    data = base64.b64decode(contenuto_b64)
+def generate_presigned_url(id_pratica: str, nome: str) -> str:
     key = f"{S3_PREFIX}/{id_pratica}/input/{nome}"
-    content_type = "application/pdf" if nome.lower().endswith(".pdf") else "application/octet-stream"
-    s3.put_object(Bucket=S3_BUCKET, Key=key, Body=data, ContentType=content_type)
+    return s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": S3_BUCKET, "Key": key},
+        ExpiresIn=PRESIGNED_URL_EXPIRY,
+    )
 
 
 def lambda_handler(event: dict, context) -> dict:
-    # Preflight CORS
     if event.get("httpMethod") == "OPTIONS":
         return response(200, {})
 
@@ -82,13 +94,13 @@ def lambda_handler(event: dict, context) -> dict:
         return response(400, {"error": "Body JSON non valido"})
 
     user_id = body.get("user_id", "").strip()
-    documenti = body.get("documenti", [])
+    file_names = body.get("file_names", [])
 
     if not user_id:
         return response(400, {"error": "user_id mancante nel body"})
 
-    if not documenti:
-        return response(400, {"error": "Nessun documento ricevuto"})
+    if not file_names:
+        return response(400, {"error": "file_names mancante o vuoto"})
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     id_pratica = f"{user_id}_{timestamp}"
@@ -98,26 +110,16 @@ def lambda_handler(event: dict, context) -> dict:
     except ClientError as e:
         return response(500, {"error": f"Errore DynamoDB: {e.response['Error']['Message']}"})
 
-    errori_upload = []
-    for doc in documenti:
-        nome = doc.get("nome", "documento")
-        contenuto_b64 = doc.get("contenuto", "")
-        if not contenuto_b64:
-            errori_upload.append(nome)
-            continue
+    presigned_urls = []
+    for nome in file_names:
         try:
-            upload_document(id_pratica, nome, contenuto_b64)
+            url = generate_presigned_url(id_pratica, nome)
+            presigned_urls.append({"nome": nome, "url": url})
         except ClientError as e:
-            errori_upload.append(nome)
+            return response(500, {"error": f"Errore generazione URL per {nome}: {e.response['Error']['Message']}"})
 
-    if errori_upload:
-        return response(
-            207,
-            {
-                "id_pratica": id_pratica,
-                "status": "CREATA",
-                "warning": f"Upload fallito per: {', '.join(errori_upload)}",
-            },
-        )
-
-    return response(200, {"id_pratica": id_pratica, "status": "CREATA"})
+    return response(200, {
+        "id_pratica": id_pratica,
+        "status": "CREATA",
+        "presigned_urls": presigned_urls,
+    })

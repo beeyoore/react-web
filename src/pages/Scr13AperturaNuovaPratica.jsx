@@ -5,7 +5,7 @@ import SubheaderMenu from '../components/SubheaderMenu';
 import Stepper from '../components/Stepper';
 import NavigationToolbar from '../components/NavigationToolbar';
 import userProfile from '../data/userProfile.json';
-import { apriPratica } from '../api/apriPratica';
+import { apriPratica, uploadDocumenti } from '../api/apriPratica';
 
 const STEPS = [
   { label: 'Dati della pratica',    sublabel: 'Completato' },
@@ -223,8 +223,9 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
     setApiError(null);
     setLoading(true);
     try {
-      await apriPratica(userProfile.id, uploadedFiles);
+      const { presigned_urls } = await apriPratica(userProfile.id, uploadedFiles.map(f => f.name));
       setShowModal(true);
+      uploadDocumenti(uploadedFiles, presigned_urls).catch(console.error);
     } catch (err) {
       setApiError(err.message || 'Errore durante l\'apertura della pratica');
     } finally {

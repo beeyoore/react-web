@@ -1,42 +1,38 @@
 const API_URL = import.meta.env.VITE_API_APRI_PRATICA_URL;
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      // result è "data:<mime>;base64,<contenuto>" — estraiamo solo la parte base64
-      const base64 = reader.result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 /**
- * Apre una pratica su DynamoDB e carica i documenti su S3.
- * @param {string} userId  - ID utente da userProfile.id
- * @param {File[]} files   - array di oggetti File nativi del browser
- * @returns {Promise<{ id_pratica: string, status: string }>}
+ * Crea la pratica su DynamoDB e ottiene i presigned URL per l'upload S3.
+ * @param {string} userId
+ * @param {string[]} fileNames
+ * @returns {Promise<{ id_pratica: string, status: string, presigned_urls: Array }>}
  */
-export async function apriPratica(userId, files) {
-  const documenti = await Promise.all(
-    files.map(async (file) => ({
-      nome: file.name,
-      contenuto: await fileToBase64(file),
-    }))
-  );
-
+export async function apriPratica(userId, fileNames) {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, documenti }),
+    body: JSON.stringify({ user_id: userId, file_names: fileNames }),
   });
 
-  if (!res.ok && res.status !== 207) {
+  if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Errore server (${res.status})`);
   }
 
   return res.json();
+}
+
+/**
+ * Carica i file direttamente su S3 tramite i presigned URL ricevuti dalla Lambda.
+ * @param {File[]} files
+ * @param {Array<{ nome: string, url: string }>} presignedUrls
+ */
+export async function uploadDocumenti(files, presignedUrls) {
+  await Promise.all(
+    files.map(async (file) => {
+      const entry = presignedUrls.find((u) => u.nome === file.name);
+      if (!entry) throw new Error(`Presigned URL mancante per ${file.name}`);
+      const r = await fetch(entry.url, { method: 'PUT', body: file });
+      if (!r.ok) throw new Error(`Upload fallito per ${file.name} (${r.status})`);
+    })
+  );
 }
