@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import PreHeader from '../components/PreHeader';
 import TopHeader from '../components/TopHeader';
 import SubheaderMenu from '../components/SubheaderMenu';
@@ -11,7 +12,10 @@ const STEPS = [
   { label: 'Riepilogo',             sublabel: 'Non completato' },
 ];
 
-export default function AperturaNuovaPratica() {
+export default function AperturaNuovaPratica({ onNext, onCancel }) {
+  const [values, setValues] = useState({ protocollo: '', dataPec: '', codiceFiscale: '' });
+  const allFilled = Object.values(values).every(v => v.trim() !== '');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Navigation header (sticky) */}
@@ -53,6 +57,7 @@ export default function AperturaNuovaPratica() {
             id="protocollo"
             label="Numero protocollo del decreto"
             placeholder="Es. 0012345/2026"
+            onChange={v => setValues(prev => ({ ...prev, protocollo: v }))}
             style={{ flex: '1 0 0', minWidth: 0 }}
           />
           <FormField
@@ -60,6 +65,7 @@ export default function AperturaNuovaPratica() {
             label="Data recezione PEC"
             placeholder="gg/mm/aaaa"
             showCalendar
+            onChange={v => setValues(prev => ({ ...prev, dataPec: v }))}
             style={{ width: 183, flexShrink: 0 }}
           />
           <FormField
@@ -67,6 +73,7 @@ export default function AperturaNuovaPratica() {
             label="Codice fiscale"
             placeholder="Es. RSSMRA80A01H501U"
             showInfo
+            onChange={v => setValues(prev => ({ ...prev, codiceFiscale: v }))}
             style={{ width: 269, flexShrink: 0 }}
           />
         </div>
@@ -76,8 +83,9 @@ export default function AperturaNuovaPratica() {
       <div style={{ height: 96 }} />
 
       <NavigationToolbar
-        onCancel={() => alert('Annulla')}
-        nextDisabled={true}
+        onCancel={onCancel}
+        onNext={onNext}
+        nextDisabled={!allFilled}
       />
     </div>
   );

@@ -1,4 +1,17 @@
-function StepBubble({ number, active }) {
+function StepBubble({ number, active, completed }) {
+  if (completed) {
+    return (
+      <div style={{
+        width: 24, height: 24, borderRadius: 1000, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--teal)',
+      }}>
+        <svg width="13" height="10" viewBox="0 0 13 10" fill="none">
+          <path d="M1.5 5L5 8.5L11.5 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+    );
+  }
   return (
     <div style={{
       width: 24, height: 24,
@@ -21,11 +34,11 @@ function StepBubble({ number, active }) {
   );
 }
 
-function StepItem({ number, label, sublabel, active, showDivider = true }) {
+function StepItem({ number, label, sublabel, active, completed, showDivider = true }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexShrink: 0 }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: 24, flexShrink: 0 }}>
-        <StepBubble number={number} active={active} />
+        <StepBubble number={number} active={active} completed={completed} />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
@@ -34,7 +47,7 @@ function StepItem({ number, label, sublabel, active, showDivider = true }) {
           fontWeight: 500,
           letterSpacing: 1,
           lineHeight: '24px',
-          ...(active
+          ...(active || completed
             ? { color: 'var(--blue-main)', textDecoration: 'underline' }
             : { color: 'var(--text-main)', opacity: 0.65 }
           ),
@@ -85,6 +98,7 @@ export default function Stepper({ currentStep = 1, totalSteps = 3, title = 'Aper
             label={step.label}
             sublabel={step.sublabel}
             active={i + 1 === currentStep}
+            completed={i + 1 < currentStep}
             showDivider={i < steps.length - 1}
           />
         ))}

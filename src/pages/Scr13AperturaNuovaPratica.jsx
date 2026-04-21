@@ -7,12 +7,12 @@ import RadioGroup from '../components/RadioGroup';
 import NavigationToolbar from '../components/NavigationToolbar';
 
 const STEPS = [
-  { label: 'Dati della pratica',    sublabel: 'Da compilare' },
-  { label: 'Caricamento documenti', sublabel: 'Non completato' },
+  { label: 'Dati della pratica',    sublabel: 'Completato' },
+  { label: 'Caricamento documenti', sublabel: 'Completato' },
   { label: 'Riepilogo',             sublabel: 'Da verificare' },
 ];
 
-export default function Scr13AperturaNuovaPratica() {
+export default function Scr13AperturaNuovaPratica({ onCancel }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Navigation header (sticky) */}
@@ -25,7 +25,7 @@ export default function Scr13AperturaNuovaPratica() {
       {/* Stepper — Step 2 di 3, step 1 highlighted as active */}
       <Stepper
         title="Apertura pratica"
-        currentStep={1}
+        currentStep={3}
         totalSteps={3}
         steps={STEPS}
       />
@@ -81,7 +81,7 @@ export default function Scr13AperturaNuovaPratica() {
       <div style={{ height: 96 }} />
 
       <NavigationToolbar
-        onCancel={() => alert('Annulla')}
+        onCancel={onCancel}
         nextDisabled={true}
       />
     </div>
