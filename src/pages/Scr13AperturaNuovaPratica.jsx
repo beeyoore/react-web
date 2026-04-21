@@ -105,7 +105,7 @@ function SuccessModal({ onHome, onDetail }) {
           fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px',
           color: 'var(--text-main)', textAlign: 'center', margin: 0,
         }}>
-          Pratica creata con successo!
+          Pratica aperta con successo!
         </h2>
 
         <p style={{

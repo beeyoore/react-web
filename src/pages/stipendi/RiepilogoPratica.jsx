@@ -68,7 +68,7 @@ function BulletDot() {
 function CheckCircleIcon() {
   return (
     <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-      <circle cx="32" cy="32" r="32" fill="var(--teal)" />
+      <circle cx="32" cy="32" r="32" fill="#468041" />
       <path d="M20 32L28 40L44 24" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -102,7 +102,7 @@ function SuccessModal({ onHome, onDetail }) {
           fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px',
           color: 'var(--text-main)', textAlign: 'center', margin: 0,
         }}>
-          Pratica creata con successo!
+          Pratica aperta con successo!
         </h2>
 
         <p style={{
