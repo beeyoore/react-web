@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PreHeader from '../components/PreHeader';
 import TopHeader from '../components/TopHeader';
 import SubheaderMenu from '../components/SubheaderMenu';
+import { getPratica } from '../api/getPratica';
+
+const POLL_INTERVAL = 10_000;
+const TERMINAL = new Set(['superato', 'non_superato', 'errore']);
 
 const MONTHS_IT = [
   'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
@@ -32,15 +36,24 @@ function formatSize(bytes) {
   return mb.toFixed(1).replace('.', ',') + 'mb';
 }
 
+function allTerminal(controls) {
+  return controls.length > 0 && controls.every(c => TERMINAL.has(c.esito));
+}
+
+function deriveControlliStatus(controls) {
+  if (!controls || controls.length === 0) return 'non_avviati';
+  if (!allTerminal(controls)) return 'in_lavorazione';
+  if (controls.every(c => c.esito === 'superato')) return 'superati';
+  return 'non_superati';
+}
+
 // ── Icons ──────────────────────────────────────────────────────────────────
 
 function HomeIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path
-        d="M3 9.5L12 2.5L21 9.5V21H15V15H9V21H3V9.5Z"
-        stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      />
+      <path d="M3 9.5L12 2.5L21 9.5V21H15V15H9V21H3V9.5Z"
+        stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -48,14 +61,10 @@ function HomeIcon() {
 function FileIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path
-        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-        stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      />
-      <polyline
-        points="14 2 14 8 20 8"
-        stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      />
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+        stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="14 2 14 8 20 8"
+        stroke="var(--blue-main)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -68,7 +77,6 @@ function BulletDot() {
   );
 }
 
-// Tab icons matching Figma
 function IconDashboard() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
@@ -106,32 +114,72 @@ function IconSliders() {
   );
 }
 
+// X circle icon for "Non superato" chip
+function IconXCircle() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="9" fill="#fff6f6" stroke="#f66f6f" strokeWidth="1.5" />
+      <path d="M15 9L9 15M9 9l6 6" stroke="#e60000" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // ── Status tag ─────────────────────────────────────────────────────────────
 
-const STATUS_STYLES = {
-  'IN LAVORAZIONE': { background: '#fff8eb', color: '#494949', border: '1px solid #c25700' },
-  'NON AVVIABILI':  { background: '#fafafa', color: '#494949', border: '1px solid #737373' },
-  'COMPLETATO':     { background: '#eaf4ea', color: '#2a6b2a', border: '1px solid #82c282' },
-  'ERRORE':         { background: '#fdecea', color: '#b71c1c', border: '1px solid #f44336' },
+const TAG_STYLES = {
+  non_avviati:   { background: '#fafafa',  color: '#494949', border: '1px solid #737373' },
+  in_lavorazione:{ background: '#fff8eb',  color: '#494949', border: '1px solid #c25700' },
+  superati:      { background: '#eaf4ea',  color: '#2a6b2a', border: '1px solid #82c282' },
+  non_superati:  { background: '#fff6f6',  color: '#e60000', border: '1px solid #e60000' },
 };
 
-function StatusTag({ label }) {
-  const style = STATUS_STYLES[label] || STATUS_STYLES['NON AVVIABILI'];
+const TAG_LABELS = {
+  non_avviati:    'NON AVVIATI',
+  in_lavorazione: 'IN LAVORAZIONE',
+  superati:       'SUPERATI',
+  non_superati:   'NON SUPERATI - INTEGRAZIONE',
+};
+
+function StatusTag({ status }) {
+  const style = TAG_STYLES[status] || TAG_STYLES.non_avviati;
   return (
     <span style={{
-      display: 'inline-block',
-      padding: '4px 8px',
-      borderRadius: 8,
-      fontSize: 12,
-      fontWeight: 500,
-      letterSpacing: 1,
-      textTransform: 'uppercase',
-      whiteSpace: 'nowrap',
-      flexShrink: 0,
-      ...style,
+      display: 'inline-block', padding: '4px 8px', borderRadius: 8,
+      fontSize: 12, fontWeight: 500, letterSpacing: 1, textTransform: 'uppercase',
+      whiteSpace: 'nowrap', flexShrink: 0, ...style,
     }}>
-      {label}
+      {TAG_LABELS[status]}
     </span>
+  );
+}
+
+// ── Esito chip ─────────────────────────────────────────────────────────────
+
+const ESITO_CONFIG = {
+  superato:           { bg: '#f0fff4', border: '#82c282', text: '#2a6b2a', label: 'Superato' },
+  non_superato:       { bg: '#fff6f6', border: '#f66f6f', text: '#202124', label: 'Non superato', icon: 'x' },
+  errore:             { bg: '#fdecea', border: '#f44336', text: '#b71c1c', label: 'Errore', icon: 'x' },
+  in_lavorazione:     { bg: '#fff8eb', border: '#c25700', text: '#a05c00', label: 'In lavorazione' },
+  in_attesa_categoria:{ bg: '#fafafa', border: '#737373', text: '#494949', label: 'In attesa' },
+};
+
+function EsitoChip({ esito }) {
+  const cfg = ESITO_CONFIG[esito] || ESITO_CONFIG.in_lavorazione;
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 0,
+      height: 32, paddingLeft: cfg.icon ? 4 : 8, paddingRight: 8,
+      borderRadius: 1000, border: `1px solid ${cfg.border}`,
+      background: cfg.bg, flexShrink: 0,
+    }}>
+      {cfg.icon === 'x' && <IconXCircle />}
+      <span style={{
+        paddingLeft: 4, fontSize: 16, fontWeight: 300,
+        letterSpacing: 1, lineHeight: '24px', color: cfg.text, whiteSpace: 'nowrap',
+      }}>
+        {cfg.label}
+      </span>
+    </div>
   );
 }
 
@@ -156,12 +204,9 @@ function DocumentCard({ file }) {
   const today = new Date();
   return (
     <div style={{
-      flex: '1 0 0', minWidth: 0,
-      background: 'var(--white)',
-      border: '1px solid var(--grey-border)',
-      borderRadius: 8,
-      padding: 16,
-      display: 'flex', gap: 16, alignItems: 'flex-start',
+      flex: '1 0 0', minWidth: 0, background: 'var(--white)',
+      border: '1px solid var(--grey-border)', borderRadius: 8,
+      padding: 16, display: 'flex', gap: 16, alignItems: 'flex-start',
     }}>
       <FileIcon />
       <div style={{ flex: '1 0 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -186,7 +231,7 @@ function DocumentCard({ file }) {
   );
 }
 
-// ── Left tab menu ──────────────────────────────────────────────────────────
+// ── Tabs ───────────────────────────────────────────────────────────────────
 
 const TABS = [
   { label: 'Informazioni sulla pratica',        Icon: IconDashboard },
@@ -197,40 +242,19 @@ const TABS = [
 function TabMenu({ activeTab, onTabChange }) {
   return (
     <nav style={{
-      width: 323,
-      flexShrink: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-      alignSelf: 'flex-start',
-      position: 'sticky',
-      top: 180,
+      width: 323, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8,
+      alignSelf: 'flex-start', position: 'sticky', top: 160,
     }}>
       {TABS.map(({ label, Icon }) => {
         const isActive = label === activeTab;
         return (
-          <button
-            key={label}
-            onClick={() => onTabChange(label)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              textAlign: 'left',
-              padding: '12px 16px',
-              border: 'none',
-              borderRadius: 8,
-              background: isActive ? '#f5f9ff' : 'transparent',
-              cursor: 'pointer',
-              fontFamily: 'var(--font)',
-              fontSize: 18,
-              fontWeight: isActive ? 600 : 300,
-              letterSpacing: 1,
-              lineHeight: '28px',
-              color: 'var(--blue-main)',
-            }}
-          >
+          <button key={label} onClick={() => onTabChange(label)} style={{
+            display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+            textAlign: 'left', padding: '12px 16px', border: 'none', borderRadius: 8,
+            background: isActive ? '#f5f9ff' : 'transparent', cursor: 'pointer',
+            fontFamily: 'var(--font)', fontSize: 18, fontWeight: isActive ? 600 : 300,
+            letterSpacing: 1, lineHeight: '28px', color: 'var(--blue-main)',
+          }}>
             <Icon />
             {label}
           </button>
@@ -243,31 +267,18 @@ function TabMenu({ activeTab, onTabChange }) {
 // ── Info card ──────────────────────────────────────────────────────────────
 
 function InfoPraticaCard({ praticeData, uploadedFiles }) {
-  const {
-    protocollo = '',
-    dataPec = null,
-    codiceFiscale = '',
-  } = praticeData || {};
-
+  const { protocollo = '', dataPec = null, codiceFiscale = '' } = praticeData || {};
   const rows = [];
-  for (let i = 0; i < uploadedFiles.length; i += 2) {
-    rows.push(uploadedFiles.slice(i, i + 2));
-  }
+  for (let i = 0; i < uploadedFiles.length; i += 2) rows.push(uploadedFiles.slice(i, i + 2));
 
   return (
     <div style={{
-      background: '#fbfcff',
-      border: '1px solid var(--grey-border)',
-      borderRadius: 8,
-      padding: 16,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 24,
+      background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
+      padding: 16, display: 'flex', flexDirection: 'column', gap: 24,
     }}>
       <h4 style={{ fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px', color: 'var(--text-main)', margin: 0 }}>
         Informazioni sulla pratica
       </h4>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
           Dati della pratica
@@ -278,7 +289,6 @@ function InfoPraticaCard({ praticeData, uploadedFiles }) {
           <ReadOnlyField label="Codice fiscale" value={codiceFiscale} style={{ width: 264 }} />
         </div>
       </div>
-
       {uploadedFiles.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
@@ -287,9 +297,7 @@ function InfoPraticaCard({ praticeData, uploadedFiles }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {rows.map((row, rowIdx) => (
               <div key={rowIdx} style={{ display: 'flex', gap: 24 }}>
-                {row.map((file, colIdx) => (
-                  <DocumentCard key={rowIdx * 2 + colIdx} file={file} />
-                ))}
+                {row.map((file, colIdx) => <DocumentCard key={rowIdx * 2 + colIdx} file={file} />)}
                 {row.length === 1 && <div style={{ flex: '1 0 0' }} />}
               </div>
             ))}
@@ -300,25 +308,225 @@ function InfoPraticaCard({ praticeData, uploadedFiles }) {
   );
 }
 
-function ControlliCard({ title, status, description }) {
+// ── Controlli table ────────────────────────────────────────────────────────
+
+const COL_WIDTHS = { checkbox: 48, esito: 166, convalidato: 136, azioni: 170 };
+
+const HEADER_STYLE = {
+  background: 'white', borderBottom: '1px solid #bbc5d7',
+  height: 64, display: 'flex', alignItems: 'center', padding: 12,
+  fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--text-main)',
+};
+
+function TableRow({ ctrl, index, checked, onCheck }) {
+  const isEven = index % 2 === 1;
+  const cellBg = isEven ? '#eef1f8' : '#fbfcff';
+  const cellStyle = {
+    background: cellBg, borderBottom: '1px solid #bbc5d7',
+    height: 64, display: 'flex', alignItems: 'center', padding: 12,
+  };
+  return (
+    <>
+      {/* Checkbox */}
+      <div style={{ ...cellStyle, width: COL_WIDTHS.checkbox, justifyContent: 'center', flexShrink: 0 }}>
+        <div
+          role="checkbox"
+          aria-checked={checked}
+          tabIndex={0}
+          onClick={() => onCheck(!checked)}
+          onKeyDown={e => e.key === ' ' && onCheck(!checked)}
+          style={{
+            width: 24, height: 24, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
+            border: '1px solid var(--blue-main)',
+            background: checked ? 'var(--blue-main)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {checked && (
+            <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+              <path d="M1 5L5 9L13 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </div>
+      </div>
+      {/* Controllo */}
+      <div style={{ ...cellStyle, flex: '1 0 0', minWidth: 0 }}>
+        <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
+          {ctrl.nome}
+        </span>
+      </div>
+      {/* Esito */}
+      <div style={{ ...cellStyle, width: COL_WIDTHS.esito, flexShrink: 0 }}>
+        <EsitoChip esito={ctrl.esito} />
+      </div>
+      {/* Convalidato */}
+      <div style={{ ...cellStyle, width: COL_WIDTHS.convalidato, flexShrink: 0 }}>
+        <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
+          {ctrl.convalidato ? 'Sì' : 'No'}
+        </span>
+      </div>
+      {/* Azioni */}
+      <div style={{ ...cellStyle, width: COL_WIDTHS.azioni, flexShrink: 0 }}>
+        <button style={{
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+          fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+          letterSpacing: 1, color: 'var(--blue-main)', whiteSpace: 'nowrap',
+        }}>
+          Vai al dettaglio
+        </button>
+      </div>
+    </>
+  );
+}
+
+function ControlliTable({ controls, checked, onCheckAll, onCheckRow }) {
+  const allChecked = controls.length > 0 && controls.every((_, i) => checked[i]);
+
+  return (
+    <div style={{ border: '1px solid #bbc5d7', borderRadius: 8, overflow: 'hidden', width: '100%' }}>
+      {/* Header */}
+      <div style={{ display: 'flex' }}>
+        <div style={{ ...HEADER_STYLE, width: COL_WIDTHS.checkbox, justifyContent: 'center', flexShrink: 0 }}>
+          <div
+            role="checkbox"
+            aria-checked={allChecked}
+            tabIndex={0}
+            onClick={() => onCheckAll(!allChecked)}
+            onKeyDown={e => e.key === ' ' && onCheckAll(!allChecked)}
+            style={{
+              width: 24, height: 24, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
+              border: '1px solid var(--blue-main)',
+              background: allChecked ? 'var(--blue-main)' : 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            {allChecked && (
+              <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+                <path d="M1 5L5 9L13 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        </div>
+        <div style={{ ...HEADER_STYLE, flex: '1 0 0', minWidth: 0 }}>Controllo</div>
+        <div style={{ ...HEADER_STYLE, width: COL_WIDTHS.esito, flexShrink: 0 }}>Esito</div>
+        <div style={{ ...HEADER_STYLE, width: COL_WIDTHS.convalidato, flexShrink: 0 }}>Convalidato</div>
+        <div style={{ ...HEADER_STYLE, width: COL_WIDTHS.azioni, flexShrink: 0 }}>Azioni</div>
+      </div>
+      {/* Rows */}
+      {controls.map((ctrl, i) => (
+        <div key={ctrl.id} style={{ display: 'flex' }}>
+          <TableRow
+            ctrl={ctrl}
+            index={i}
+            checked={!!checked[i]}
+            onCheck={(val) => onCheckRow(i, val)}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Controlli card ─────────────────────────────────────────────────────────
+
+const DESCRIZIONE_STATUS = {
+  non_avviati:    'I controlli preliminari non sono ancora stati avviati.',
+  in_lavorazione: 'I controlli preliminari sono in corso di elaborazione. Gli esiti saranno disponibili al completamento.',
+  superati:       'Tutti i controlli preliminari sono stati superati.',
+  non_superati:   'Controlli non superati. Il sistema propone una richiesta di integrazione e blocca i controlli successivi fino al superamento dei controlli preliminari.',
+};
+
+function ControlliPreliminaryCard({ controls }) {
+  const status = deriveControlliStatus(controls);
+  const [checked, setChecked] = useState({});
+
+  const anyChecked = Object.values(checked).some(Boolean);
+
+  function handleCheckAll(val) {
+    const next = {};
+    controls.forEach((_, i) => { next[i] = val; });
+    setChecked(next);
+  }
+
+  function handleCheckRow(i, val) {
+    setChecked(prev => ({ ...prev, [i]: val }));
+  }
+
   return (
     <div style={{
-      background: '#fbfcff',
-      border: '1px solid var(--grey-border)',
-      borderRadius: 8,
-      padding: 16,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
+      background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
+      padding: 16, display: 'flex', flexDirection: 'column', gap: 24,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <h4 style={{ fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px', color: 'var(--text-main)', margin: 0, whiteSpace: 'nowrap' }}>
+          Controlli preliminari
+        </h4>
+        <StatusTag status={status} />
+      </div>
+
+      {controls.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+            Esiti per ciascun controllo
+          </p>
+          <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+            {DESCRIZIONE_STATUS[status]}
+          </p>
+
+          {/* Convalida button */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              disabled={!anyChecked}
+              style={{
+                height: 40, minWidth: 160, padding: '8px 12px', borderRadius: 8, border: 'none',
+                cursor: anyChecked ? 'pointer' : 'default',
+                background: anyChecked ? 'var(--blue-main)' : '#d9d9d9',
+                fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+                letterSpacing: 1, lineHeight: '24px',
+                color: anyChecked ? 'white' : '#a6a6a6',
+              }}
+            >
+              Convalida
+            </button>
+          </div>
+
+          <ControlliTable
+            controls={controls}
+            checked={checked}
+            onCheckAll={handleCheckAll}
+            onCheckRow={handleCheckRow}
+          />
+        </div>
+      )}
+
+      {controls.length === 0 && (
+        <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+          {DESCRIZIONE_STATUS[status]}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ControlliAmmCard({ status }) {
+  const ammStatus = status === 'superati' ? 'non_avviati' : 'non_avviati';
+  const descrizione = status === 'non_superati'
+    ? 'Controlli automatici non avviabili. È stato rilevato un errore bloccante nei controlli preliminari.'
+    : 'I controlli amministrativo-contabili non possono essere avviati fino al completamento dei controlli preliminari.';
+
+  return (
+    <div style={{
+      background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
+      padding: 16, display: 'flex', flexDirection: 'column', gap: 8,
     }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <p style={{ fontSize: 20, fontWeight: 600, letterSpacing: 1, lineHeight: '26px', color: 'var(--text-main)', margin: 0, whiteSpace: 'nowrap' }}>
-          {title}
+          Controlli amministrativo-contabili
         </p>
-        <StatusTag label={status} />
+        <StatusTag status={ammStatus} />
       </div>
       <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
-        {description}
+        {descrizione}
       </p>
     </div>
   );
@@ -326,8 +534,39 @@ function ControlliCard({ title, status, description }) {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
-export default function DettaglioPratica({ praticeData, uploadedFiles = [], onHome, userName }) {
+export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPratica, onHome, userName }) {
   const [activeTab, setActiveTab] = useState(TABS[0].label);
+  const [controlli, setControlli] = useState({ preliminari: [], amm_contabili: [] });
+  const intervalRef = useRef(null);
+
+  function stopPolling() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
+
+  async function fetchControlli() {
+    if (!idPratica) return;
+    try {
+      const data = await getPratica(idPratica);
+      const prel = data.controlli_preliminari || [];
+      const amm  = data.controlli_amm_contabili || [];
+      setControlli({ preliminari: prel, amm_contabili: amm });
+      if (allTerminal(prel) && allTerminal(amm)) stopPolling();
+    } catch {
+      // silently retry on next tick
+    }
+  }
+
+  useEffect(() => {
+    if (!idPratica) return;
+    fetchControlli();
+    intervalRef.current = setInterval(fetchControlli, POLL_INTERVAL);
+    return stopPolling;
+  }, [idPratica]);
+
+  const prelStatus = deriveControlliStatus(controlli.preliminari);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -339,21 +578,10 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], onHo
 
       {/* Breadcrumb */}
       <div style={{
-        height: 60,
-        borderBottom: '1px solid var(--grey-border)',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 40px',
-        gap: 8,
+        height: 60, borderBottom: '1px solid var(--grey-border)',
+        display: 'flex', alignItems: 'center', padding: '0 40px', gap: 8,
       }}>
-        <button
-          onClick={onHome}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontFamily: 'var(--font)', padding: 0,
-          }}
-        >
+        <button onClick={onHome} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
           <HomeIcon />
         </button>
         <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--blue-main)' }}>/</span>
@@ -363,17 +591,16 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], onHo
       </div>
 
       <main style={{ padding: '32px 40px 80px', flex: 1, display: 'flex', flexDirection: 'column', gap: 32 }}>
-        {/* Page title */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h2 style={{ fontSize: 32, fontWeight: 600, letterSpacing: 1, lineHeight: '42px', color: 'var(--text-main)', margin: 0 }}>
             Dettaglio pratica
           </h2>
           <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
-            Consulta le informazioni relative alla pratica e lo stato di avanzamento dei controlli preliminari e amministrativo-contabili. Se i controlli sono ancora in lavorazione, riprova tra qualche minuto per visualizzarne gli esiti.
+            Consulta le informazioni relative alla pratica e lo stato di avanzamento dei controlli preliminari e amministrativo-contabili.
+            {' '}Se i controlli sono ancora in lavorazione, riprova tra qualche minuto per visualizzarne gli esiti.
           </p>
         </div>
 
-        {/* Two-column layout */}
         <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
           <TabMenu activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -381,21 +608,11 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], onHo
             {activeTab === 'Informazioni sulla pratica' && (
               <InfoPraticaCard praticeData={praticeData} uploadedFiles={uploadedFiles} />
             )}
-
             {activeTab === 'Controlli preliminari' && (
-              <ControlliCard
-                title="Controlli preliminari"
-                status="IN LAVORAZIONE"
-                description="Controlli preliminari in corso. L'esito sarà disponibile al termine della verifica."
-              />
+              <ControlliPreliminaryCard controls={controlli.preliminari} />
             )}
-
             {activeTab === 'Controlli amministrativo-contabili' && (
-              <ControlliCard
-                title="Controlli amministrativo-contabili"
-                status="NON AVVIABILI"
-                description="Controlli automatici non avviati. È necessario attendere il completamento dei controlli preliminari."
-              />
+              <ControlliAmmCard status={prelStatus} />
             )}
           </div>
         </div>

@@ -60,6 +60,55 @@ ATA_REQUIRED_DOCUMENT_TYPES = COMMON_REQUIRED_DOCUMENT_TYPES | {
     "presa_atto_conferma_ruolo",
 }
 
+# Controlli preliminari: ogni voce diventa un item PRELIMINARE#{id} in DynamoDB.
+# categorie=None  → valido per tutte le categorie di personale
+# categorie=set   → valido solo per le categorie indicate
+# tipo_documento=None → controllo speciale gestito separatamente (documento servizi)
+PRELIMINARY_CONTROLS = [
+    {
+        "id": "verifica_decreto_ricostruzione",
+        "nome": "Verifica presenza decreto ricostruzione carriera",
+        "tipo_documento": "decreto_ricostruzione",
+        "categorie": None,
+    },
+    {
+        "id": "verifica_istanza_ricostruzione",
+        "nome": "Verifica presenza istanza ricostruzione di carriera",
+        "tipo_documento": "istanza_ricostruzione",
+        "categorie": None,
+    },
+    {
+        "id": "verifica_contratto_tempo_indeterminato",
+        "nome": "Verifica presenza contratto a tempo indeterminato",
+        "tipo_documento": "contratto_tempo_indeterminato",
+        "categorie": None,
+    },
+    {
+        "id": "verifica_titolo_studio",
+        "nome": "Verifica presenza titolo di studio",
+        "tipo_documento": "titolo_studio",
+        "categorie": None,
+    },
+    {
+        "id": "verifica_decreto_superamento_prova",
+        "nome": "Verifica presenza decreto superamento prova",
+        "tipo_documento": "decreto_superamento_prova",
+        "categorie": {"docente"},
+    },
+    {
+        "id": "verifica_presa_atto_conferma_ruolo",
+        "nome": "Verifica presenza presa atto conferma ruolo",
+        "tipo_documento": "presa_atto_conferma_ruolo",
+        "categorie": {"ATA"},
+    },
+    {
+        "id": "verifica_documento_servizi",
+        "nome": "Verifica presenza documento servizi",
+        "tipo_documento": None,
+        "categorie": None,
+    },
+]
+
 ATA_QUALIFICA_HINTS = {
     "ata",
     "assistente amministrativo",
@@ -348,19 +397,14 @@ def load_schema_for_category(categoria_personale: str) -> dict:
 # S3 / document helpers
 # ---------------------------------------------------------------------------
 
-ALLOWED_TIPI_FLUSSO = {"controlli", "stipendi"}
-
-
 def parse_classified_key(key: str, classified_prefix: str) -> dict | None:
     parts = key.split("/")
 
-    # flat: {classified_prefix}/{filename}
     if len(parts) == 2 and parts[0] == classified_prefix and parts[1].lower().endswith(".classification.json"):
         filename = parts[1]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "tipo_flusso": None, "id_pratica": None}
+        return {"filename": filename, "base_name": base_name, "id_pratica": None}
 
-    # legacy_practice: pratiche/{id_pratica}/output/{classified_prefix}/{filename}
     if (
         len(parts) == 5
         and parts[0] == "pratiche"
@@ -370,9 +414,8 @@ def parse_classified_key(key: str, classified_prefix: str) -> dict | None:
     ):
         filename = parts[4]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "tipo_flusso": None, "id_pratica": parts[1]}
+        return {"filename": filename, "base_name": base_name, "id_pratica": parts[1]}
 
-    # phase_first: output/{classified_prefix}/{id_pratica}/{filename}
     if (
         len(parts) == 4
         and parts[0] == "output"
@@ -381,19 +424,22 @@ def parse_classified_key(key: str, classified_prefix: str) -> dict | None:
     ):
         filename = parts[3]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "tipo_flusso": None, "id_pratica": parts[2]}
+        return {"filename": filename, "base_name": base_name, "id_pratica": parts[2]}
 
-    # practice_with_tipo: output/{classified_prefix}/{tipo_flusso}/{id_pratica}/{filename}
     if (
         len(parts) == 5
         and parts[0] == "output"
         and parts[1] == classified_prefix
-        and parts[2] in ALLOWED_TIPI_FLUSSO
         and parts[4].lower().endswith(".classification.json")
     ):
         filename = parts[4]
         base_name = filename[: -len(".classification.json")]
-        return {"filename": filename, "base_name": base_name, "tipo_flusso": parts[2], "id_pratica": parts[3]}
+        return {
+            "filename": filename,
+            "base_name": base_name,
+            "id_pratica": parts[3],
+            "tipo_flusso": parts[2],
+        }
 
     return None
 
@@ -409,22 +455,40 @@ def load_json_object(bucket: str, key: str) -> dict | None:
     return json.loads(body)
 
 
-def _classified_prefixes_for_pratica(classified_prefix: str, id_pratica: str, tipo_flusso: str | None = None) -> list[str]:
+def _classified_prefixes_for_pratica(
+    classified_prefix: str,
+    id_pratica: str,
+    current_key: str | None = None,
+) -> list[str]:
     prefixes = [
         f"output/{classified_prefix}/{id_pratica}/",
         f"pratiche/{id_pratica}/output/{classified_prefix}/",
     ]
-    if tipo_flusso:
-        prefixes.insert(0, f"output/{classified_prefix}/{tipo_flusso}/{id_pratica}/")
-    return prefixes
+
+    if current_key and "/" in current_key:
+        prefixes.insert(0, current_key.rsplit("/", 1)[0] + "/")
+
+    deduplicated_prefixes = []
+    seen = set()
+    for prefix in prefixes:
+        if prefix in seen:
+            continue
+        seen.add(prefix)
+        deduplicated_prefixes.append(prefix)
+    return deduplicated_prefixes
 
 
-def list_classified_keys_for_pratica(bucket: str, classified_prefix: str, id_pratica: str, tipo_flusso: str | None = None) -> list[str]:
+def list_classified_keys_for_pratica(
+    bucket: str,
+    classified_prefix: str,
+    id_pratica: str,
+    current_key: str | None = None,
+) -> list[str]:
     keys: list[str] = []
     seen = set()
     paginator = s3.get_paginator("list_objects_v2")
 
-    for prefix in _classified_prefixes_for_pratica(classified_prefix, id_pratica, tipo_flusso):
+    for prefix in _classified_prefixes_for_pratica(classified_prefix, id_pratica, current_key):
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for item in page.get("Contents", []):
                 key = item.get("Key")
@@ -628,6 +692,10 @@ def get_table():
     return dynamodb.Table(os.environ.get("DYNAMODB_TABLE", "RTS_Pratiche"))
 
 
+def get_controlli_table():
+    return dynamodb.Table(os.environ.get("CONTROLLI_TABLE", "Controlli"))
+
+
 def load_pratica_metadata(table, id_pratica: str) -> dict:
     response = table.query(
         KeyConditionExpression=Key("PK").eq(f"PRATICA#{id_pratica}") & Key("SK").eq("METADATA")
@@ -694,6 +762,60 @@ def ensure_metadata_item(table, id_pratica: str) -> None:
             ":flag_completezza": False,
         },
     )
+
+
+def evaluate_preliminary_controls(
+    present_document_types: set[str],
+    categoria_personale: str | None,
+) -> list[dict]:
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    results = []
+    for ctrl in PRELIMINARY_CONTROLS:
+        categorie = ctrl["categorie"]
+        # Skip controls for other categories when category is known
+        if categorie is not None and categoria_personale and categoria_personale not in categorie:
+            continue
+        # Special case: documento servizi is any of ALTERNATIVE_SERVICE_DOCUMENT_TYPES
+        if ctrl["tipo_documento"] is None:
+            presente = bool(present_document_types & ALTERNATIVE_SERVICE_DOCUMENT_TYPES)
+        else:
+            presente = ctrl["tipo_documento"] in present_document_types
+        # Category-specific controls stay pending until category is known
+        if categorie is not None and not categoria_personale:
+            esito = "in_attesa_categoria"
+        else:
+            esito = "superato" if presente else "non_superato"
+        results.append({
+            "id": ctrl["id"],
+            "nome": ctrl["nome"],
+            "esito": esito,
+            "aggiornato_at": now_iso,
+        })
+    return results
+
+
+def write_preliminary_controls(id_pratica: str, controls: list[dict]) -> None:
+    controlli_table = get_controlli_table()
+    for ctrl in controls:
+        controlli_table.update_item(
+            Key={"PK": f"PRATICA#{id_pratica}", "SK": f"PRELIMINARE#{ctrl['id']}"},
+            UpdateExpression=(
+                "SET nome = :nome, "
+                "esito = :esito, "
+                "convalidato = if_not_exists(convalidato, :convalidato), "
+                "aggiornato_at = :aggiornato_at"
+            ),
+            ExpressionAttributeValues={
+                ":nome": ctrl["nome"],
+                ":esito": ctrl["esito"],
+                ":convalidato": False,
+                ":aggiornato_at": ctrl["aggiornato_at"],
+            },
+        )
+        logger.info(
+            "preliminary_control_written id_pratica=%s control=%s esito=%s",
+            id_pratica, ctrl["id"], ctrl["esito"],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -862,7 +984,9 @@ def save_categoria_personale_metadata(table, id_pratica: str, categoria_result: 
 # Metadata state
 # ---------------------------------------------------------------------------
 
-def build_metadata_state(pratica_metadata: dict, document_items: list[dict]) -> dict:
+def build_metadata_state(
+    pratica_metadata: dict, document_items: list[dict]
+) -> tuple[dict, list[dict]]:
     present_document_types = {
         item.get("tipo_documento")
         for item in document_items
@@ -871,11 +995,15 @@ def build_metadata_state(pratica_metadata: dict, document_items: list[dict]) -> 
 
     service_document_types = sorted(present_document_types & ALTERNATIVE_SERVICE_DOCUMENT_TYPES)
     categoria_personale = derive_categoria_personale(pratica_metadata, document_items)
+
+    controls = evaluate_preliminary_controls(present_document_types, categoria_personale)
+    flag_completezza = bool(controls) and all(c["esito"] == "superato" for c in controls)
+
     metadata_state = {
         "flag_servizio_militare": "foglio_congedo_illimitato" in present_document_types,
         "flag_mancato_superamento_prova": "decreto_mancato_superamento_prova" in present_document_types,
         "flag_risposta_osservazione": "osservazione_precedente" in present_document_types,
-        "flag_completezza": False,
+        "flag_completezza": flag_completezza,
     }
 
     if categoria_personale:
@@ -887,24 +1015,13 @@ def build_metadata_state(pratica_metadata: dict, document_items: list[dict]) -> 
     elif existing_service_source in ALTERNATIVE_SERVICE_DOCUMENT_TYPES:
         metadata_state["fonte_documento_servizi"] = existing_service_source
 
-    required_document_types = None
-    if categoria_personale == "docente":
-        required_document_types = DOCENTE_REQUIRED_DOCUMENT_TYPES
-    elif categoria_personale == "ATA":
-        required_document_types = ATA_REQUIRED_DOCUMENT_TYPES
-
-    metadata_state["flag_completezza"] = (
-        bool(required_document_types)
-        and bool(service_document_types)
-        and required_document_types.issubset(present_document_types)
-    )
-    return metadata_state
+    return metadata_state, controls
 
 
 def refresh_metadata_from_documents(table, id_pratica: str, pratica_metadata: dict | None = None) -> dict:
     current_metadata = pratica_metadata or load_pratica_metadata(table, id_pratica)
     document_items = query_document_items(table, id_pratica)
-    metadata_state = build_metadata_state(current_metadata, document_items)
+    metadata_state, controls = build_metadata_state(current_metadata, document_items)
 
     update_parts = []
     expression_attribute_values = {}
@@ -920,10 +1037,13 @@ def refresh_metadata_from_documents(table, id_pratica: str, pratica_metadata: di
             ExpressionAttributeValues=expression_attribute_values,
         )
 
+    write_preliminary_controls(id_pratica, controls)
+
     logger.info(
-        "metadata_refreshed id_pratica=%s metadata_state=%s present_document_types=%s",
+        "metadata_refreshed id_pratica=%s metadata_state=%s controls=%s present_document_types=%s",
         id_pratica,
         json.dumps(metadata_state, ensure_ascii=False),
+        json.dumps([{"id": c["id"], "esito": c["esito"]} for c in controls], ensure_ascii=False),
         sorted(item.get("tipo_documento") for item in document_items if item.get("tipo_documento")),
     )
     return metadata_state
@@ -2766,8 +2886,6 @@ def lambda_handler(event: dict, context) -> dict:
             skipped.append({"key": classified_key, "reason": "invalid_classified_key"})
             continue
 
-        tipo_flusso = parsed.get("tipo_flusso")
-
         classified_document = load_json_object(bucket, classified_key)
         if not classified_document:
             logger.info("entity_extractor_skip key=%s reason=missing_classified_document", classified_key)
@@ -2880,7 +2998,12 @@ def lambda_handler(event: dict, context) -> dict:
             logger.info("entity_extractor_skip key=%s reason=document_already_extracted existing_sk=%s", classified_key, existing_item.get("SK"))
             pending_classified_triggered = 0
             if categoria_just_determined:
-                classified_keys = list_classified_keys_for_pratica(bucket, classified_prefix, id_pratica, tipo_flusso)
+                classified_keys = list_classified_keys_for_pratica(
+                    bucket,
+                    classified_prefix,
+                    id_pratica,
+                    current_key=classified_key,
+                )
                 pending_classified_triggered = trigger_extraction_for_classified_keys(
                     function_name=extractor_function_name,
                     bucket=bucket,
@@ -3002,7 +3125,12 @@ def lambda_handler(event: dict, context) -> dict:
         )
         pending_classified_triggered = 0
         if categoria_just_determined:
-            classified_keys = list_classified_keys_for_pratica(bucket, classified_prefix, id_pratica)
+            classified_keys = list_classified_keys_for_pratica(
+                bucket,
+                classified_prefix,
+                id_pratica,
+                current_key=classified_key,
+            )
             pending_classified_triggered = trigger_extraction_for_classified_keys(
                 function_name=extractor_function_name,
                 bucket=bucket,
@@ -3018,7 +3146,6 @@ def lambda_handler(event: dict, context) -> dict:
                 "schemaSection": schema_section_name,
                 "categoriaPersonale": categoria_personale,
                 "schemaFile": schema_filename_for_categoria(categoria_personale),
-                "tipoFlusso": tipo_flusso,
                 "metadataState": metadata_state,
                 "serviziIngestorTriggered": trigger_sent,
                 "pendingClassifiedTriggered": pending_classified_triggered,

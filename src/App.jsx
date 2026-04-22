@@ -20,6 +20,7 @@ export default function App() {
   const [step, setStep] = useState(0);
   const [praticeData, setPraticeData] = useState(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [idPratica, setIdPratica] = useState(null);
 
   // Homepage
   if (step === 0) return (
@@ -72,13 +73,14 @@ export default function App() {
       praticeData={praticeData}
       uploadedFiles={uploadedFiles}
       onCancel={() => setStep(0)}
-      onDetail={() => setStep(4)}
+      onDetail={(id) => { setIdPratica(id); setStep(4); }}
     />
   );
   return (
     <DettaglioPratica
       praticeData={praticeData}
       uploadedFiles={uploadedFiles}
+      idPratica={idPratica}
       userName={userName}
       onHome={() => setStep(0)}
     />

@@ -219,11 +219,14 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
   const [apiError, setApiError] = useState(null);
   const { protocollo = '', dataPec = null, codiceFiscale = '' } = praticeData || {};
 
+  const [idPratica, setIdPratica] = useState(null);
+
   async function handleApriPratica() {
     setApiError(null);
     setLoading(true);
     try {
-      const { presigned_urls } = await apriPratica(userProfile.id, 'controlli', uploadedFiles.map(f => f.name));
+      const { presigned_urls, id_pratica } = await apriPratica(userProfile.id, 'controlli', uploadedFiles.map(f => f.name));
+      setIdPratica(id_pratica);
       setShowModal(true);
       uploadDocumenti(uploadedFiles, presigned_urls).catch(console.error);
     } catch (err) {
@@ -325,7 +328,7 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
       {showModal && (
         <SuccessModal
           onHome={onCancel}
-          onDetail={onDetail ?? onCancel}
+          onDetail={() => (onDetail ?? onCancel)(idPratica)}
         />
       )}
     </div>
