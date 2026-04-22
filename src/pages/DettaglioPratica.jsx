@@ -3,6 +3,7 @@ import PreHeader from '../components/PreHeader';
 import TopHeader from '../components/TopHeader';
 import SubheaderMenu from '../components/SubheaderMenu';
 import { getPratica } from '../api/getPratica';
+import { convalidaControlli } from '../api/convalidaControlli';
 
 const POLL_INTERVAL = 10_000;
 const TERMINAL = new Set(['superato', 'non_superato', 'errore']);
@@ -427,6 +428,122 @@ function ControlliTable({ controls, checked, onCheckAll, onCheckRow }) {
   );
 }
 
+// ── Modals ─────────────────────────────────────────────────────────────────
+
+function ModalOverlay({ children }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function ConvalidaAlertModal({ onAnnulla, onConferma }) {
+  return (
+    <ModalOverlay>
+      <div style={{
+        background: 'white', borderRadius: 12, padding: '40px 48px',
+        maxWidth: 500, width: '90%', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+      }}>
+        {/* Warning icon */}
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%', background: '#fff8eb',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <path d="M14 4L25 23H3L14 4Z" stroke="#c25700" strokeWidth="2" strokeLinejoin="round" fill="#fff8eb" />
+            <line x1="14" y1="12" x2="14" y2="18" stroke="#c25700" strokeWidth="2" strokeLinecap="round" />
+            <circle cx="14" cy="21" r="1" fill="#c25700" />
+          </svg>
+        </div>
+        <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
+          Sei sicuro di voler convalidare<br />i controlli preliminari?
+        </h3>
+        <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
+          Se convalidi, i controlli preliminari non saranno più modificabili.
+        </p>
+        <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
+          <button
+            onClick={onAnnulla}
+            style={{
+              flex: 1, height: 44, borderRadius: 8, border: '2px solid var(--blue-main)',
+              background: 'white', cursor: 'pointer', fontFamily: 'var(--font)',
+              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--blue-main)',
+            }}
+          >
+            Annulla
+          </button>
+          <button
+            onClick={onConferma}
+            style={{
+              flex: 1, height: 44, borderRadius: 8, border: 'none',
+              background: 'var(--blue-main)', cursor: 'pointer', fontFamily: 'var(--font)',
+              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'white',
+            }}
+          >
+            Conferma e convalida
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+function ConvalidaSuccessModal({ onHome, onRimani }) {
+  return (
+    <ModalOverlay>
+      <div style={{
+        background: 'white', borderRadius: 12, padding: '40px 48px',
+        maxWidth: 500, width: '90%', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+      }}>
+        {/* Green checkmark */}
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%', background: '#eaf4ea',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <path d="M5 14L11 20L23 8" stroke="#2a6b2a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
+          I controlli preliminari sono stati<br />convalidati con successo!
+        </h3>
+        <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
+          Non verranno effettuati ulteriori controlli, in quanto quelli preliminari non sono stati superati
+        </p>
+        <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
+          <button
+            onClick={onHome}
+            style={{
+              flex: 1, height: 44, borderRadius: 8, border: '2px solid var(--blue-main)',
+              background: 'white', cursor: 'pointer', fontFamily: 'var(--font)',
+              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--blue-main)',
+            }}
+          >
+            Torna alla Homepage
+          </button>
+          <button
+            onClick={onRimani}
+            style={{
+              flex: 1, height: 44, borderRadius: 8, border: 'none',
+              background: 'var(--blue-main)', cursor: 'pointer', fontFamily: 'var(--font)',
+              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'white',
+            }}
+          >
+            Rimani sulla pratica
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
 // ── Controlli card ─────────────────────────────────────────────────────────
 
 const DESCRIZIONE_STATUS = {
@@ -436,11 +553,24 @@ const DESCRIZIONE_STATUS = {
   non_superati:   'Controlli non superati. Il sistema propone una richiesta di integrazione e blocca i controlli successivi fino al superamento dei controlli preliminari.',
 };
 
-function ControlliPreliminaryCard({ controls }) {
+function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   const status = deriveControlliStatus(controls);
   const [checked, setChecked] = useState({});
+  const [showAlert, setShowAlert] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
-  const anyChecked = Object.values(checked).some(Boolean);
+  // ids of controls already convalidated (derived from server data)
+  const convalidatiSet = new Set(
+    controls.map((c, i) => (c.convalidato ? i : null)).filter(i => i !== null)
+  );
+
+  const checkedIndices = Object.entries(checked).filter(([, v]) => v).map(([k]) => Number(k));
+  const anyChecked = checkedIndices.length > 0;
+  const allChecked = controls.length > 0 && checkedIndices.length === controls.length;
+  const buttonLabel = allChecked ? 'Convalida tutti' : 'Convalida';
+  const allDone = controls.length > 0 && controls.every(c => c.convalidato);
 
   function handleCheckAll(val) {
     const next = {};
@@ -452,59 +582,128 @@ function ControlliPreliminaryCard({ controls }) {
     setChecked(prev => ({ ...prev, [i]: val }));
   }
 
-  return (
-    <div style={{
-      background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
-      padding: 16, display: 'flex', flexDirection: 'column', gap: 24,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <h4 style={{ fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px', color: 'var(--text-main)', margin: 0, whiteSpace: 'nowrap' }}>
-          Controlli preliminari
-        </h4>
-        <StatusTag status={status} />
-      </div>
+  function handleConvalidaClick() {
+    setSaveError(null);
+    setShowAlert(true);
+  }
 
-      {controls.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
-            Esiti per ciascun controllo
-          </p>
+  function handleAnnulla() {
+    setShowAlert(false);
+  }
+
+  async function handleConferma() {
+    setShowAlert(false);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const selectedIds = checkedIndices.map(i => controls[i].id);
+      await convalidaControlli(idPratica, 'preliminare', selectedIds);
+      setChecked({});
+      // Refresh data from server so the new convalidato=true is persisted and visible
+      if (onRefresh) await onRefresh();
+      setShowSuccess(true);
+    } catch (err) {
+      setSaveError(err.message || 'Errore durante la convalida. Riprova.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleRimani() {
+    setShowSuccess(false);
+  }
+
+  function handleHome() {
+    setShowSuccess(false);
+    if (onHome) onHome();
+  }
+
+  // displayControls: use server data directly (convalidato already reflects DB state after refresh)
+  const displayControls = controls;
+
+  return (
+    <>
+      {showAlert && (
+        <ConvalidaAlertModal onAnnulla={handleAnnulla} onConferma={handleConferma} />
+      )}
+      {showSuccess && (
+        <ConvalidaSuccessModal onHome={handleHome} onRimani={handleRimani} />
+      )}
+
+      <div style={{
+        background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
+        padding: 16, display: 'flex', flexDirection: 'column', gap: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <h4 style={{ fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px', color: 'var(--text-main)', margin: 0, whiteSpace: 'nowrap' }}>
+            Controlli preliminari
+          </h4>
+          <StatusTag status={status} />
+        </div>
+
+        {controls.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+              Esiti per ciascun controllo
+            </p>
+            <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+              {DESCRIZIONE_STATUS[status]}
+            </p>
+
+            {/* Convalida button */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+              {saveError && (
+                <p style={{ fontSize: 14, color: '#e60000', margin: 0, letterSpacing: 1 }}>{saveError}</p>
+              )}
+              <button
+                disabled={!anyChecked || saving}
+                onClick={handleConvalidaClick}
+                style={{
+                  height: 40, minWidth: 160, padding: '8px 12px', borderRadius: 8, border: 'none',
+                  cursor: (anyChecked && !saving) ? 'pointer' : 'default',
+                  background: (anyChecked && !saving) ? 'var(--blue-main)' : '#d9d9d9',
+                  fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+                  letterSpacing: 1, lineHeight: '24px',
+                  color: (anyChecked && !saving) ? 'white' : '#a6a6a6',
+                }}
+              >
+                {saving ? 'Salvataggio…' : buttonLabel}
+              </button>
+            </div>
+
+            <ControlliTable
+              controls={displayControls}
+              checked={checked}
+              onCheckAll={handleCheckAll}
+              onCheckRow={handleCheckRow}
+            />
+
+            {/* Post-convalida banner */}
+            {allDone && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '12px 16px', borderRadius: 8,
+                background: '#eaf4ea', border: '1px solid #82c282',
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="9" fill="#eaf4ea" stroke="#2a6b2a" strokeWidth="1.5" />
+                  <path d="M7 12L10.5 15.5L17 9" stroke="#2a6b2a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, lineHeight: '24px', color: '#2a6b2a' }}>
+                  Esiti convalidati. La lavorazione della pratica si conclude poiché non tutti i controlli sono stati superati.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {controls.length === 0 && (
           <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
             {DESCRIZIONE_STATUS[status]}
           </p>
-
-          {/* Convalida button */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              disabled={!anyChecked}
-              style={{
-                height: 40, minWidth: 160, padding: '8px 12px', borderRadius: 8, border: 'none',
-                cursor: anyChecked ? 'pointer' : 'default',
-                background: anyChecked ? 'var(--blue-main)' : '#d9d9d9',
-                fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
-                letterSpacing: 1, lineHeight: '24px',
-                color: anyChecked ? 'white' : '#a6a6a6',
-              }}
-            >
-              Convalida
-            </button>
-          </div>
-
-          <ControlliTable
-            controls={controls}
-            checked={checked}
-            onCheckAll={handleCheckAll}
-            onCheckRow={handleCheckRow}
-          />
-        </div>
-      )}
-
-      {controls.length === 0 && (
-        <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
-          {DESCRIZIONE_STATUS[status]}
-        </p>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -614,7 +813,12 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
               <InfoPraticaCard praticeData={praticeData} uploadedFiles={uploadedFiles} />
             )}
             {activeTab === 'Controlli preliminari' && (
-              <ControlliPreliminaryCard controls={controlli.preliminari} />
+              <ControlliPreliminaryCard
+                controls={controlli.preliminari}
+                idPratica={idPratica}
+                onRefresh={fetchControlli}
+                onHome={onHome}
+              />
             )}
             {activeTab === 'Controlli amministrativo-contabili' && (
               <ControlliAmmCard status={prelStatus} />
