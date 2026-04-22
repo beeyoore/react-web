@@ -217,7 +217,20 @@ export default function RiepilogoPraticaStipendi({ praticeData, uploadedFiles = 
     setApiError(null);
     setLoading(true);
     try {
-      const { presigned_urls } = await apriPratica(userProfile.id, 'stipendi', uploadedFiles.map(f => f.name));
+      const datiPratica = {
+        protocollo,
+        codice_fiscale: codiceFiscale,
+        prescrizione,
+        ...(prescrizione === 'Sì' && dataPrescrizione
+          ? { data_prescrizione: dataPrescrizione.toISOString().slice(0, 10) }
+          : {}),
+      };
+      const { presigned_urls } = await apriPratica(
+        userProfile.id,
+        'stipendi',
+        uploadedFiles.map(f => f.name),
+        datiPratica,
+      );
       setShowModal(true);
       uploadDocumenti(uploadedFiles, presigned_urls).catch(console.error);
     } catch (err) {

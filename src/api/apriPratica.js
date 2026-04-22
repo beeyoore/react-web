@@ -5,13 +5,19 @@ const API_URL = import.meta.env.VITE_API_APRI_PRATICA_URL;
  * @param {string} userId
  * @param {'controlli'|'stipendi'} tipoServizio
  * @param {string[]} fileNames
+ * @param {object} datiPratica  – campi del form compilati dall'utente
  * @returns {Promise<{ id_pratica: string, status: string, presigned_urls: Array }>}
  */
-export async function apriPratica(userId, tipoServizio, fileNames) {
+export async function apriPratica(userId, tipoServizio, fileNames, datiPratica = {}) {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, tipo_servizio: tipoServizio, file_names: fileNames }),
+    body: JSON.stringify({
+      user_id: userId,
+      tipo_servizio: tipoServizio,
+      file_names: fileNames,
+      dati_pratica: datiPratica,
+    }),
   });
 
   if (!res.ok) {

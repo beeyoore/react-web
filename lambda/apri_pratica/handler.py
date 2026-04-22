@@ -6,7 +6,19 @@ Body JSON:
 {
   "user_id":       "MARIO_ROSSI",           ← obbligatorio
   "tipo_servizio": "controlli" | "stipendi" ← obbligatorio
-  "file_names":    ["doc.pdf", "atto.p7m"]  ← lista nomi file da caricare
+  "file_names":    ["doc.pdf", "atto.p7m"],  ← lista nomi file da caricare
+  "dati_pratica": {                          ← campi del form (opzionale ma atteso)
+    // Comuni a entrambi i flussi
+    "protocollo":        "0012345/2026",
+    "codice_fiscale":    "RSSMRA80A01H501U",
+
+    // Solo flusso "controlli"
+    "data_pec":          "2026-04-22",       ← ISO date string (YYYY-MM-DD)
+
+    // Solo flusso "stipendi"
+    "prescrizione":      "Sì" | "No",
+    "data_prescrizione": "2026-04-22"        ← ISO date string, presente solo se prescrizione="Sì"
+  }
 }
 
 Risposta 200:
@@ -65,20 +77,41 @@ def response(status_code: int, body: dict) -> dict:
 ALLOWED_TIPI = {"controlli", "stipendi"}
 
 
-def create_dynamodb_entry(id_pratica: str, user_id: str, tipo_servizio: str, documenti_attesi: int) -> None:
+def create_dynamodb_entry(
+    id_pratica: str,
+    user_id: str,
+    tipo_servizio: str,
+    documenti_attesi: int,
+    dati_pratica: dict,
+) -> None:
     table = dynamodb.Table(DYNAMODB_TABLE)
-    table.put_item(
-        Item={
-            "PK": f"PRATICA#{id_pratica}",
-            "SK": "METADATA",
-            "id_pratica": id_pratica,
-            "user_id": user_id,
-            "tipo_servizio": tipo_servizio,
-            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "status": "CREATA",
-            "documenti_attesi": documenti_attesi,
-        }
-    )
+    item = {
+        "PK": f"PRATICA#{id_pratica}",
+        "SK": "METADATA",
+        "id_pratica": id_pratica,
+        "user_id": user_id,
+        "tipo_servizio": tipo_servizio,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "status": "CREATA",
+        "documenti_attesi": documenti_attesi,
+    }
+    # Campi comuni a entrambi i flussi
+    if "protocollo" in dati_pratica:
+        item["protocollo"] = dati_pratica["protocollo"]
+    if "codice_fiscale" in dati_pratica:
+        item["codice_fiscale"] = dati_pratica["codice_fiscale"]
+
+    # Campi specifici flusso "controlli"
+    if "data_pec" in dati_pratica:
+        item["data_pec"] = dati_pratica["data_pec"]
+
+    # Campi specifici flusso "stipendi"
+    if "prescrizione" in dati_pratica:
+        item["prescrizione"] = dati_pratica["prescrizione"]
+    if "data_prescrizione" in dati_pratica:
+        item["data_prescrizione"] = dati_pratica["data_prescrizione"]
+
+    table.put_item(Item=item)
 
 
 def generate_presigned_url(id_pratica: str, tipo_servizio: str, nome: str) -> str:
@@ -102,6 +135,7 @@ def lambda_handler(event: dict, context) -> dict:
     user_id = body.get("user_id", "").strip()
     tipo_servizio = body.get("tipo_servizio", "").strip().lower()
     file_names = body.get("file_names", [])
+    dati_pratica = body.get("dati_pratica", {})
 
     if not user_id:
         return response(400, {"error": "user_id mancante nel body"})
@@ -116,7 +150,7 @@ def lambda_handler(event: dict, context) -> dict:
     id_pratica = f"{user_id}_{timestamp}"
 
     try:
-        create_dynamodb_entry(id_pratica, user_id, tipo_servizio, len(file_names))
+        create_dynamodb_entry(id_pratica, user_id, tipo_servizio, len(file_names), dati_pratica)
     except ClientError as e:
         return response(500, {"error": f"Errore DynamoDB: {e.response['Error']['Message']}"})
 

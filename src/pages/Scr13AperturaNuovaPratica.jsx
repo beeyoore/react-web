@@ -225,7 +225,17 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
     setApiError(null);
     setLoading(true);
     try {
-      const { presigned_urls, id_pratica } = await apriPratica(userProfile.id, 'controlli', uploadedFiles.map(f => f.name));
+      const datiPratica = {
+        protocollo,
+        codice_fiscale: codiceFiscale,
+        ...(dataPec ? { data_pec: dataPec.toISOString().slice(0, 10) } : {}),
+      };
+      const { presigned_urls, id_pratica } = await apriPratica(
+        userProfile.id,
+        'controlli',
+        uploadedFiles.map(f => f.name),
+        datiPratica,
+      );
       setIdPratica(id_pratica);
       setShowModal(true);
       uploadDocumenti(uploadedFiles, presigned_urls).catch(console.error);
