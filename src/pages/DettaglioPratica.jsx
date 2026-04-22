@@ -509,7 +509,8 @@ function ConvalidaAlertModal({ onAnnulla, onConferma }) {
   );
 }
 
-function ConvalidaSuccessModal({ onHome, onRimani }) {
+function ConvalidaSuccessModal({ remaining, onHome, onRimani }) {
+  const isParziale = remaining > 0;
   return (
     <ModalOverlay>
       <div style={{
@@ -527,31 +528,39 @@ function ConvalidaSuccessModal({ onHome, onRimani }) {
           </svg>
         </div>
         <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
-          I controlli preliminari sono stati<br />convalidati con successo!
+          {isParziale
+            ? <>I controlli preliminari selezionati<br />sono stati convalidati con successo!</>
+            : <>I controlli preliminari sono stati<br />convalidati con successo!</>
+          }
         </h3>
         <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
-          Non verranno effettuati ulteriori controlli, in quanto quelli preliminari non sono stati superati
+          {isParziale
+            ? `Sono rimasti ${remaining} ${remaining === 1 ? 'controllo' : 'controlli'} in attesa di convalida.`
+            : 'Non verranno effettuati ulteriori controlli, in quanto quelli preliminari non sono stati superati.'
+          }
         </p>
         <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
-          <button
-            onClick={onHome}
-            style={{
-              flex: 1, height: 44, borderRadius: 8, border: '2px solid var(--blue-main)',
-              background: 'white', cursor: 'pointer', fontFamily: 'var(--font)',
-              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--blue-main)',
-            }}
-          >
-            Torna alla Homepage
-          </button>
+          {!isParziale && (
+            <button
+              onClick={onHome}
+              style={{
+                flex: 1, height: 44, borderRadius: 8, border: '2px solid var(--blue-main)',
+                background: 'white', cursor: 'pointer', fontFamily: 'var(--font)',
+                fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--blue-main)',
+              }}
+            >
+              Torna alla Homepage
+            </button>
+          )}
           <button
             onClick={onRimani}
             style={{
-              flex: 1, height: 44, borderRadius: 8, border: 'none',
+              flex: isParziale ? 0 : 1, height: 44, padding: '0 24px', borderRadius: 8, border: 'none',
               background: 'var(--blue-main)', cursor: 'pointer', fontFamily: 'var(--font)',
               fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'white',
             }}
           >
-            Rimani sulla pratica
+            {isParziale ? 'Chiudi' : 'Rimani sulla pratica'}
           </button>
         </div>
       </div>
@@ -634,6 +643,7 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   const [showSuccess, setShowSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [remainingAfterVal, setRemainingAfterVal] = useState(0);
   const [dettaglioCtrl, setDettaglioCtrl] = useState(null);
 
   // ids of controls already convalidated (derived from server data)
@@ -672,6 +682,8 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
     setSaveError(null);
     try {
       const selectedIds = checkedIndices.map(i => controls[i].id);
+      const notYetValidated = controls.filter(c => !c.convalidato).length;
+      setRemainingAfterVal(Math.max(0, notYetValidated - checkedIndices.length));
       await convalidaControlli(idPratica, 'preliminare', selectedIds);
       setChecked({});
       // Refresh data from server so the new convalidato=true is persisted and visible
@@ -710,7 +722,7 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
         <ConvalidaAlertModal onAnnulla={handleAnnulla} onConferma={handleConferma} />
       )}
       {showSuccess && (
-        <ConvalidaSuccessModal onHome={handleHome} onRimani={handleRimani} />
+        <ConvalidaSuccessModal remaining={remainingAfterVal} onHome={handleHome} onRimani={handleRimani} />
       )}
       {dettaglioCtrl && (
         <DettaglioControlloModal
