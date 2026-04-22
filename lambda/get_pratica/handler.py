@@ -91,11 +91,18 @@ def build_controllo_item(item: dict) -> dict:
 
 
 def lambda_handler(event: dict, context) -> dict:
-    if event.get("httpMethod") == "OPTIONS":
+    print("EVENT:", json.dumps(event, default=str))
+
+    # Support both REST API (v1) and HTTP API (v2) payload formats
+    http_method = event.get("httpMethod") or (
+        event.get("requestContext", {}).get("http", {}).get("method", "")
+    )
+    if http_method == "OPTIONS":
         return response(200, {})
 
     path_params = event.get("pathParameters") or {}
     id_pratica = path_params.get("id_pratica", "").strip()
+    print(f"id_pratica: {id_pratica!r}")
 
     if not id_pratica:
         return response(400, {"error": "id_pratica mancante nel path"})
