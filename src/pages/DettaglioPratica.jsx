@@ -457,7 +457,7 @@ function ModalOverlay({ children }) {
   );
 }
 
-function ConvalidaAlertModal({ onAnnulla, onConferma }) {
+function ConvalidaAlertModal({ onAnnulla, onConferma, allChecked }) {
   return (
     <ModalOverlay>
       <div style={{
@@ -477,7 +477,10 @@ function ConvalidaAlertModal({ onAnnulla, onConferma }) {
           </svg>
         </div>
         <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
-          Sei sicuro di voler convalidare<br />i controlli preliminari?
+          {allChecked
+            ? <>Sei sicuro di voler convalidare<br />i controlli preliminari?</>
+            : <>Sei sicuro di voler convalidare<br />i controlli preliminari selezionati?</>
+          }
         </h3>
         <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
           Se convalidi, i controlli preliminari non saranno più modificabili.
@@ -651,15 +654,21 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
     controls.map((c, i) => (c.convalidato ? i : null)).filter(i => i !== null)
   );
 
-  const checkedIndices = Object.entries(checked).filter(([, v]) => v).map(([k]) => Number(k));
+  // Solo gli indici selezionabili (non ancora convalidati)
+  const selectableIndices = controls.map((_, i) => i).filter(i => !convalidatiSet.has(i));
+  // Solo quelli effettivamente spuntati E non convalidati
+  const checkedIndices = Object.entries(checked)
+    .filter(([k, v]) => v && !convalidatiSet.has(Number(k)))
+    .map(([k]) => Number(k));
   const anyChecked = checkedIndices.length > 0;
-  const allChecked = controls.length > 0 && checkedIndices.length === controls.length;
-  const buttonLabel = allChecked ? 'Convalida tutti' : 'Convalida';
+  const allChecked = selectableIndices.length > 0 && checkedIndices.length === selectableIndices.length;
+  const buttonLabel = allChecked ? 'Convalida tutti' : `Convalida (${checkedIndices.length})`;
   const allDone = controls.length > 0 && controls.every(c => c.convalidato);
 
   function handleCheckAll(val) {
     const next = {};
-    controls.forEach((_, i) => { next[i] = val; });
+    // Seleziona/deseleziona solo i controlli non ancora convalidati
+    selectableIndices.forEach(i => { next[i] = val; });
     setChecked(next);
   }
 
@@ -719,7 +728,7 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   return (
     <>
       {showAlert && (
-        <ConvalidaAlertModal onAnnulla={handleAnnulla} onConferma={handleConferma} />
+        <ConvalidaAlertModal onAnnulla={handleAnnulla} onConferma={handleConferma} allChecked={allChecked} />
       )}
       {showSuccess && (
         <ConvalidaSuccessModal remaining={remainingAfterVal} onHome={handleHome} onRimani={handleRimani} />
