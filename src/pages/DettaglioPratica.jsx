@@ -85,6 +85,7 @@ function BulletDot() {
   );
 }
 
+
 function IconDashboard() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
@@ -326,7 +327,7 @@ const HEADER_STYLE = {
   fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--text-main)',
 };
 
-function TableRow({ ctrl, index, checked, onCheck }) {
+function TableRow({ ctrl, index, checked, onCheck, onDettaglio }) {
   const isEven = index % 2 === 1;
   const cellBg = isEven ? '#eef1f8' : '#fbfcff';
   const cellStyle = {
@@ -378,11 +379,14 @@ function TableRow({ ctrl, index, checked, onCheck }) {
       </div>
       {/* Azioni */}
       <div style={{ ...cellStyle, width: COL_WIDTHS.azioni, flexShrink: 0 }}>
-        <button style={{
-          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-          fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
-          letterSpacing: 1, color: 'var(--blue-main)', whiteSpace: 'nowrap',
-        }}>
+        <button
+          onClick={() => onDettaglio(ctrl)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+            letterSpacing: 1, color: 'var(--blue-main)', whiteSpace: 'nowrap',
+          }}
+        >
           Vai al dettaglio
         </button>
       </div>
@@ -390,7 +394,7 @@ function TableRow({ ctrl, index, checked, onCheck }) {
   );
 }
 
-function ControlliTable({ controls, checked, onCheckAll, onCheckRow }) {
+function ControlliTable({ controls, checked, onCheckAll, onCheckRow, onDettaglioRow }) {
   const allChecked = controls.length > 0 && controls.every((_, i) => checked[i]);
 
   return (
@@ -431,6 +435,7 @@ function ControlliTable({ controls, checked, onCheckAll, onCheckRow }) {
             index={i}
             checked={!!checked[i]}
             onCheck={(val) => onCheckRow(i, val)}
+            onDettaglio={onDettaglioRow}
           />
         </div>
       ))}
@@ -554,6 +559,65 @@ function ConvalidaSuccessModal({ onHome, onRimani }) {
   );
 }
 
+function DettaglioControlloModal({ ctrl, onClose }) {
+  return (
+    <ModalOverlay>
+      <div style={{
+        background: 'white', borderRadius: 12, padding: '32px 40px',
+        maxWidth: 580, width: '90%', maxHeight: '90vh', overflowY: 'auto',
+        display: 'flex', flexDirection: 'column', gap: 24,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+      }}>
+        {/* Title */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)' }}>
+            Dettaglio controllo:
+          </span>
+          <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0 }}>
+            {ctrl.nome}
+          </h3>
+          <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: '8px 0 0' }}>
+            Consulta l&apos;esito del controllo.
+          </p>
+        </div>
+
+        {/* Esito controllo */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
+            Esito controllo
+          </p>
+          <EsitoChip esito={ctrl.esito} />
+        </div>
+
+        {/* Motivazione */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
+            Motivazione dell&apos;esito
+          </p>
+          <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0 }}>
+            {ctrl.motivazione || '—'}
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            style={{
+              height: 44, padding: '0 20px', borderRadius: 8,
+              border: '2px solid var(--blue-main)', background: 'white',
+              cursor: 'pointer', fontFamily: 'var(--font)',
+              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--blue-main)',
+            }}
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
 // ── Controlli card ─────────────────────────────────────────────────────────
 
 const DESCRIZIONE_STATUS = {
@@ -570,6 +634,7 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   const [showSuccess, setShowSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [dettaglioCtrl, setDettaglioCtrl] = useState(null);
 
   // ids of controls already convalidated (derived from server data)
   const convalidatiSet = new Set(
@@ -628,6 +693,14 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
     if (onHome) onHome();
   }
 
+  function handleOpenDettaglio(ctrl) {
+    setDettaglioCtrl(ctrl);
+  }
+
+  function handleCloseDettaglio() {
+    setDettaglioCtrl(null);
+  }
+
   // displayControls: use server data directly (convalidato already reflects DB state after refresh)
   const displayControls = controls;
 
@@ -638,6 +711,12 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
       )}
       {showSuccess && (
         <ConvalidaSuccessModal onHome={handleHome} onRimani={handleRimani} />
+      )}
+      {dettaglioCtrl && (
+        <DettaglioControlloModal
+          ctrl={dettaglioCtrl}
+          onClose={handleCloseDettaglio}
+        />
       )}
 
       <div style={{
@@ -686,6 +765,7 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
               checked={checked}
               onCheckAll={handleCheckAll}
               onCheckRow={handleCheckRow}
+              onDettaglioRow={handleOpenDettaglio}
             />
 
             {/* Post-convalida banner */}

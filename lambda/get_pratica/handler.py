@@ -85,6 +85,7 @@ def build_controllo_item(item: dict) -> dict:
         "id": item.get("SK", "").split("#", 1)[-1],
         "nome": item.get("nome", ""),
         "esito": item.get("esito", "non_avviato"),
+        "motivazione": item.get("motivazione", ""),
         "convalidato": item.get("convalidato", False),
         "aggiornato_at": item.get("aggiornato_at"),
     }
