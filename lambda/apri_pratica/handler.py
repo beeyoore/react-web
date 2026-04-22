@@ -65,7 +65,7 @@ def response(status_code: int, body: dict) -> dict:
 ALLOWED_TIPI = {"controlli", "stipendi"}
 
 
-def create_dynamodb_entry(id_pratica: str, user_id: str, tipo_servizio: str) -> None:
+def create_dynamodb_entry(id_pratica: str, user_id: str, tipo_servizio: str, documenti_attesi: int) -> None:
     table = dynamodb.Table(DYNAMODB_TABLE)
     table.put_item(
         Item={
@@ -76,6 +76,7 @@ def create_dynamodb_entry(id_pratica: str, user_id: str, tipo_servizio: str) -> 
             "tipo_servizio": tipo_servizio,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "status": "CREATA",
+            "documenti_attesi": documenti_attesi,
         }
     )
 
@@ -115,7 +116,7 @@ def lambda_handler(event: dict, context) -> dict:
     id_pratica = f"{user_id}_{timestamp}"
 
     try:
-        create_dynamodb_entry(id_pratica, user_id, tipo_servizio)
+        create_dynamodb_entry(id_pratica, user_id, tipo_servizio, len(file_names))
     except ClientError as e:
         return response(500, {"error": f"Errore DynamoDB: {e.response['Error']['Message']}"})
 

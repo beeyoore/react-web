@@ -797,25 +797,80 @@ def evaluate_preliminary_controls(
 def write_preliminary_controls(id_pratica: str, controls: list[dict]) -> None:
     controlli_table = get_controlli_table()
     for ctrl in controls:
-        controlli_table.update_item(
-            Key={"PK": f"PRATICA#{id_pratica}", "SK": f"PRELIMINARE#{ctrl['id']}"},
-            UpdateExpression=(
-                "SET nome = :nome, "
-                "esito = :esito, "
-                "convalidato = if_not_exists(convalidato, :convalidato), "
-                "aggiornato_at = :aggiornato_at"
-            ),
-            ExpressionAttributeValues={
-                ":nome": ctrl["nome"],
-                ":esito": ctrl["esito"],
-                ":convalidato": False,
-                ":aggiornato_at": ctrl["aggiornato_at"],
-            },
-        )
+        if ctrl["esito"] == "superato":
+            # Documento confermato presente: scrivi sempre superato
+            controlli_table.update_item(
+                Key={"PK": f"PRATICA#{id_pratica}", "SK": f"PRELIMINARE#{ctrl['id']}"},
+                UpdateExpression=(
+                    "SET nome = :nome, "
+                    "esito = :esito, "
+                    "convalidato = if_not_exists(convalidato, :convalidato), "
+                    "aggiornato_at = :aggiornato_at"
+                ),
+                ExpressionAttributeValues={
+                    ":nome": ctrl["nome"],
+                    ":esito": ctrl["esito"],
+                    ":convalidato": False,
+                    ":aggiornato_at": ctrl["aggiornato_at"],
+                },
+            )
+        else:
+            # Documento non ancora visto: inizializza a non_avviato se non esiste.
+            # Non sovrascrivere mai un superato già presente.
+            controlli_table.update_item(
+                Key={"PK": f"PRATICA#{id_pratica}", "SK": f"PRELIMINARE#{ctrl['id']}"},
+                UpdateExpression=(
+                    "SET nome = :nome, "
+                    "esito = if_not_exists(esito, :non_avviato), "
+                    "convalidato = if_not_exists(convalidato, :convalidato), "
+                    "aggiornato_at = if_not_exists(aggiornato_at, :aggiornato_at)"
+                ),
+                ExpressionAttributeValues={
+                    ":nome": ctrl["nome"],
+                    ":non_avviato": "non_avviato",
+                    ":convalidato": False,
+                    ":aggiornato_at": ctrl["aggiornato_at"],
+                },
+            )
         logger.info(
             "preliminary_control_written id_pratica=%s control=%s esito=%s",
             id_pratica, ctrl["id"], ctrl["esito"],
         )
+
+
+def _finalize_pending_controls(id_pratica: str) -> None:
+    """
+    Transizione non_avviato → non_superato per tutti i controlli preliminari
+    che non sono stati risolti, chiamata solo quando tutti i documenti attesi
+    sono stati processati.
+    """
+    controlli_table = get_controlli_table()
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    # Leggi i controlli esistenti per questa pratica
+    resp = controlli_table.query(
+        KeyConditionExpression=Key("PK").eq(f"PRATICA#{id_pratica}"),
+    )
+    existing = {item["SK"]: item for item in resp.get("Items", [])}
+
+    for ctrl in PRELIMINARY_CONTROLS:
+        sk = f"PRELIMINARE#{ctrl['id']}"
+        item = existing.get(sk)
+        if item and item.get("esito") == "non_avviato":
+            controlli_table.update_item(
+                Key={"PK": f"PRATICA#{id_pratica}", "SK": sk},
+                UpdateExpression="SET esito = :esito, aggiornato_at = :aggiornato_at",
+                ConditionExpression="esito = :non_avviato",
+                ExpressionAttributeValues={
+                    ":esito": "non_superato",
+                    ":non_avviato": "non_avviato",
+                    ":aggiornato_at": now_iso,
+                },
+            )
+            logger.info(
+                "preliminary_control_finalized id_pratica=%s control=%s non_avviato→non_superato",
+                id_pratica, ctrl["id"],
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1038,6 +1093,12 @@ def refresh_metadata_from_documents(table, id_pratica: str, pratica_metadata: di
         )
 
     write_preliminary_controls(id_pratica, controls)
+
+    # Finalizzazione: se tutti i documenti attesi sono stati processati,
+    # i controlli rimasti a non_avviato diventano non_superato (documento assente definitivo).
+    documenti_attesi = int((current_metadata or {}).get("documenti_attesi", 0))
+    if documenti_attesi > 0 and len(document_items) >= documenti_attesi:
+        _finalize_pending_controls(id_pratica)
 
     logger.info(
         "metadata_refreshed id_pratica=%s metadata_state=%s controls=%s present_document_types=%s",

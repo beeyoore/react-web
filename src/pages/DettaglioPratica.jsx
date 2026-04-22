@@ -553,7 +553,12 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
       const prel = data.controlli_preliminari || [];
       const amm  = data.controlli_amm_contabili || [];
       setControlli({ preliminari: prel, amm_contabili: amm });
-      if (allTerminal(prel) && allTerminal(amm)) stopPolling();
+      // Stop se i preliminari sono tutti terminali E almeno uno è non_superato
+      // (gli AMM contabili non partiranno mai), oppure se anche gli AMM sono tutti terminali.
+      const prelAllTerminal = allTerminal(prel);
+      const prelHasFailure = prel.some(c => c.esito === 'non_superato' || c.esito === 'errore');
+      const ammAllTerminal = allTerminal(amm);
+      if (prelAllTerminal && (prelHasFailure || ammAllTerminal)) stopPolling();
     } catch {
       // silently retry on next tick
     }
