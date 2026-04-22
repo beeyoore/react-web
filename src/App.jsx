@@ -6,6 +6,7 @@ import Homepage from './pages/Homepage';
 import AperturaNuovaPratica from './pages/AperturaNuovaPratica';
 import CaricamentoDocumenti from './pages/CaricamentoDocumenti';
 import Scr13AperturaNuovaPratica from './pages/Scr13AperturaNuovaPratica';
+import DettaglioPratica from './pages/DettaglioPratica';
 
 // Flusso "Stipendi"
 import StipAperturaNuovaPratica from './pages/stipendi/AperturaNuovaPratica';
@@ -66,11 +67,20 @@ export default function App() {
       onCancel={() => setStep(0)}
     />
   );
-  return (
+  if (step === 3) return (
     <Scr13AperturaNuovaPratica
       praticeData={praticeData}
       uploadedFiles={uploadedFiles}
       onCancel={() => setStep(0)}
+      onDetail={() => setStep(4)}
+    />
+  );
+  return (
+    <DettaglioPratica
+      praticeData={praticeData}
+      uploadedFiles={uploadedFiles}
+      userName={userName}
+      onHome={() => setStep(0)}
     />
   );
 }

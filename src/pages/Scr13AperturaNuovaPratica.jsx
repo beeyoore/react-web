@@ -213,7 +213,7 @@ function DocumentCard({ file }) {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
-export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles = [], onCancel }) {
+export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles = [], onCancel, onDetail }) {
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
@@ -325,7 +325,7 @@ export default function Scr13AperturaNuovaPratica({ praticeData, uploadedFiles =
       {showModal && (
         <SuccessModal
           onHome={onCancel}
-          onDetail={onCancel}
+          onDetail={onDetail ?? onCancel}
         />
       )}
     </div>
