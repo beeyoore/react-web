@@ -13,7 +13,7 @@ import StipAperturaNuovaPratica from './pages/stipendi/AperturaNuovaPratica';
 import StipCaricamentoDocumenti from './pages/stipendi/CaricamentoDocumenti';
 import StipRiepilogoPratica from './pages/stipendi/RiepilogoPratica';
 
-const userName = `${userProfile.nome} ${userProfile.cognome}`;
+const userName = `${userProfile.nome.charAt(0)}${userProfile.cognome.charAt(0)}`;
 const profilo = (userProfile.profilo || '').toLowerCase();
 
 export default function App() {

@@ -42,6 +42,13 @@ function allTerminal(controls) {
 }
 
 function deriveControlliStatus(controls) {
+  if (!controls || controls.length === 0) return 'in_lavorazione';
+  if (!allTerminal(controls)) return 'in_lavorazione';
+  if (controls.every(c => c.esito === 'superato')) return 'superati';
+  return 'non_superati';
+}
+
+function deriveAmmStatus(controls) {
   if (!controls || controls.length === 0) return 'non_avviati';
   if (!allTerminal(controls)) return 'in_lavorazione';
   if (controls.every(c => c.esito === 'superato')) return 'superati';
@@ -707,9 +714,8 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   );
 }
 
-function ControlliAmmCard({ status }) {
-  const ammStatus = status === 'superati' ? 'non_avviati' : 'non_avviati';
-  const descrizione = status === 'non_superati'
+function ControlliAmmCard({ prelStatus, ammStatus }) {
+  const descrizione = prelStatus === 'non_superati'
     ? 'Controlli automatici non avviabili. È stato rilevato un errore bloccante nei controlli preliminari.'
     : 'I controlli amministrativo-contabili non possono essere avviati fino al completamento dei controlli preliminari.';
 
@@ -771,6 +777,7 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
   }, [idPratica]);
 
   const prelStatus = deriveControlliStatus(controlli.preliminari);
+  const ammStatus = deriveAmmStatus(controlli.amm_contabili);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -821,7 +828,7 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
               />
             )}
             {activeTab === 'Controlli amministrativo-contabili' && (
-              <ControlliAmmCard status={prelStatus} />
+              <ControlliAmmCard prelStatus={prelStatus} ammStatus={ammStatus} />
             )}
           </div>
         </div>
