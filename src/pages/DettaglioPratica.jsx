@@ -333,6 +333,7 @@ function TableRow({ ctrl, index, checked, onCheck }) {
     background: cellBg, borderBottom: '1px solid #bbc5d7',
     height: 64, display: 'flex', alignItems: 'center', padding: 12,
   };
+  const isDisabled = !!ctrl.convalidato;
   return (
     <>
       {/* Checkbox */}
@@ -340,17 +341,19 @@ function TableRow({ ctrl, index, checked, onCheck }) {
         <div
           role="checkbox"
           aria-checked={checked}
-          tabIndex={0}
-          onClick={() => onCheck(!checked)}
-          onKeyDown={e => e.key === ' ' && onCheck(!checked)}
+          aria-disabled={isDisabled}
+          tabIndex={isDisabled ? -1 : 0}
+          onClick={() => !isDisabled && onCheck(!checked)}
+          onKeyDown={e => !isDisabled && e.key === ' ' && onCheck(!checked)}
           style={{
-            width: 24, height: 24, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
-            border: '1px solid var(--blue-main)',
-            background: checked ? 'var(--blue-main)' : 'transparent',
+            width: 24, height: 24, borderRadius: 4, flexShrink: 0,
+            cursor: isDisabled ? 'not-allowed' : 'pointer',
+            border: `1px solid ${isDisabled ? '#bdbdbd' : 'var(--blue-main)'}`,
+            background: isDisabled ? '#f5f5f5' : checked ? 'var(--blue-main)' : 'transparent',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
-          {checked && (
+          {checked && !isDisabled && (
             <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
               <path d="M1 5L5 9L13 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
