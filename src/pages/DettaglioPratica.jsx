@@ -4,6 +4,7 @@ import TopHeader from '../components/TopHeader';
 import SubheaderMenu from '../components/SubheaderMenu';
 import { getPratica } from '../api/getPratica';
 import { convalidaControlli } from '../api/convalidaControlli';
+import { modificaControllo } from '../api/modificaControllo';
 
 const POLL_INTERVAL = 10_000;
 const TERMINAL = new Set(['superato', 'non_superato', 'errore']);
@@ -707,7 +708,30 @@ function ConvalidaSuccessModal({ remaining, onHome, onRimani, tipoLabel = 'contr
   );
 }
 
-function DettaglioControlloModal({ ctrl, onClose }) {
+const MAX_MOTIVAZIONE = 12000;
+
+function DettaglioControlloModal({ ctrl, onClose, canModify = false, onSave }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [nuovoEsito, setNuovoEsito] = useState('superato');
+  const [nuovaMotivazione, setNuovaMotivazione] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
+  const canSave = nuovaMotivazione.trim().length > 0 && !saving;
+
+  async function handleSave() {
+    if (!canSave || !onSave) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(ctrl, nuovoEsito, nuovaMotivazione.trim());
+      onClose();
+    } catch (err) {
+      setSaveError(err.message || 'Errore durante il salvataggio. Riprova.');
+      setSaving(false);
+    }
+  }
+
   return (
     <ModalOverlay>
       <div style={{
@@ -722,36 +746,40 @@ function DettaglioControlloModal({ ctrl, onClose }) {
             Dettaglio controllo:
           </span>
           <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0 }}>
-            {ctrl.descrizione || ctrl.id}
+            {ctrl.nome}
           </h3>
-          {ctrl.macro_categoria && (
-            <span style={{ fontSize: 13, fontWeight: 400, letterSpacing: 1, color: '#737373', marginTop: 2 }}>
-              {ctrl.macro_categoria}
-            </span>
-          )}
           <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: '8px 0 0' }}>
-            Consulta l&apos;esito del controllo.
+            Consulta l&apos;esito del controllo e se necessario, procedi alla modifica.
           </p>
         </div>
-
-        {/* Descrizione */}
-        {ctrl.descrizione && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <p style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
-              Descrizione
-            </p>
-            <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0 }}>
-              {ctrl.descrizione}
-            </p>
-          </div>
-        )}
 
         {/* Esito controllo */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <p style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
             Esito controllo
           </p>
-          <EsitoChip esito={ctrl.esito} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <EsitoChip esito={ctrl.esito} />
+            {canModify && (
+              <button
+                onClick={() => !isEditing && setIsEditing(true)}
+                style={{
+                  background: 'none', border: 'none', padding: 0,
+                  cursor: isEditing ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  fontFamily: 'var(--font)', fontSize: 16, fontWeight: 400, letterSpacing: 1,
+                  color: isEditing ? '#bdbdbd' : 'var(--blue-main)',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M11 2L14 5L5 14H2V11L11 2Z"
+                    stroke={isEditing ? '#bdbdbd' : 'var(--blue-main)'}
+                    strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Modifica
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Motivazione */}
@@ -764,8 +792,77 @@ function DettaglioControlloModal({ ctrl, onClose }) {
           </p>
         </div>
 
+        {/* Edit form */}
+        {isEditing && (
+          <div style={{
+            border: '1px solid var(--grey-border)', borderRadius: 8,
+            padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16,
+          }}>
+            <p style={{ fontSize: 16, fontWeight: 600, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
+              Modifica esito e fornisci una motivazione
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)' }}>Esito</span>
+                <InfoTooltipIcon />
+              </div>
+              <div style={{ display: 'flex', gap: 24 }}>
+                {['superato', 'non_superato'].map(val => (
+                  <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="nuovoEsito"
+                      value={val}
+                      checked={nuovoEsito === val}
+                      onChange={() => setNuovoEsito(val)}
+                      style={{ accentColor: 'var(--blue-main)', width: 18, height: 18, cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, color: 'var(--text-main)' }}>
+                      {val === 'superato' ? 'Superato' : 'Non superato'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)' }}>
+                Motivazione della modifica dell&apos;esito
+              </span>
+              <div style={{ position: 'relative' }}>
+                <textarea
+                  value={nuovaMotivazione}
+                  onChange={e => setNuovaMotivazione(e.target.value.slice(0, MAX_MOTIVAZIONE))}
+                  placeholder="Es. I dati corrispondono correttamente."
+                  rows={4}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '10px 12px 28px', borderRadius: 6,
+                    border: '1px solid var(--grey-border)', resize: 'vertical',
+                    fontFamily: 'var(--font)', fontSize: 16, fontWeight: 300,
+                    letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)',
+                    outline: 'none',
+                  }}
+                />
+                <span style={{
+                  position: 'absolute', bottom: 8, right: 10,
+                  fontSize: 12, fontWeight: 300, letterSpacing: 1, color: '#737373',
+                  pointerEvents: 'none',
+                }}>
+                  {nuovaMotivazione.length}/{MAX_MOTIVAZIONE}
+                </span>
+              </div>
+            </div>
+
+            {saveError && (
+              <p style={{ fontSize: 14, color: '#e60000', margin: 0, letterSpacing: 1 }}>{saveError}</p>
+            )}
+          </div>
+        )}
+
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <button
             onClick={onClose}
             style={{
@@ -777,6 +874,21 @@ function DettaglioControlloModal({ ctrl, onClose }) {
           >
             Chiudi
           </button>
+          {canModify && (
+            <button
+              disabled={!canSave}
+              onClick={handleSave}
+              style={{
+                height: 44, padding: '0 20px', borderRadius: 8, border: 'none',
+                cursor: canSave ? 'pointer' : 'default',
+                background: canSave ? 'var(--blue-main)' : '#d9d9d9',
+                fontFamily: 'var(--font)', fontSize: 16, fontWeight: 500,
+                letterSpacing: 1, color: canSave ? 'white' : '#a6a6a6',
+              }}
+            >
+              {saving ? 'Salvataggio…' : 'Salva modifiche'}
+            </button>
+          )}
         </div>
       </div>
     </ModalOverlay>
@@ -1108,7 +1220,15 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
         />
       )}
       {dettaglioCtrl && (
-        <DettaglioControlloModal ctrl={dettaglioCtrl} onClose={() => setDettaglioCtrl(null)} />
+        <DettaglioControlloModal
+          ctrl={dettaglioCtrl}
+          onClose={() => setDettaglioCtrl(null)}
+          canModify={true}
+          onSave={async (ctrl, nuovoEsito, nuovaMotivazione) => {
+            await modificaControllo(idPratica, ctrl.id, nuovoEsito, nuovaMotivazione);
+            if (onRefresh) await onRefresh();
+          }}
+        />
       )}
 
       <div style={{
