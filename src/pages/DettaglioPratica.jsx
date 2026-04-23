@@ -722,7 +722,7 @@ function DettaglioControlloModal({ ctrl, onClose }) {
             Dettaglio controllo:
           </span>
           <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0 }}>
-            {ctrl.nome || ctrl.id}
+            {ctrl.descrizione || ctrl.id}
           </h3>
           {ctrl.macro_categoria && (
             <span style={{ fontSize: 13, fontWeight: 400, letterSpacing: 1, color: '#737373', marginTop: 2 }}>
@@ -971,6 +971,14 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   );
 }
 
+const CATEGORY_ORDER = [
+  'Corrispondenza dei dati anagrafici',
+  'Corrispondenza dei dati professionali',
+  'Riconoscibilità dei servizi e delle assenze',
+  "Verifica dell'anzianità maturata",
+  'Ulteriori controlli',
+];
+
 const DESC_AMM_STATUS = {
   non_avviati:    'I controlli amministrativo-contabili non possono essere avviati fino al completamento dei controlli preliminari.',
   in_lavorazione: 'I controlli amministrativo-contabili sono in corso di elaborazione.',
@@ -984,7 +992,11 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
   const primari   = controls.filter(c => c.tipo !== 'secondario');
   const secondari = controls.filter(c => c.tipo === 'secondario');
 
-  const categories = [...new Set(primari.map(c => c.macro_categoria || 'Generale'))];
+  const availableCats = new Set(primari.map(c => c.macro_categoria || 'Generale'));
+  const categories = [
+    ...CATEGORY_ORDER.filter(c => availableCats.has(c)),
+    ...[...availableCats].filter(c => !CATEGORY_ORDER.includes(c)),
+  ];
   const [activeCategory, setActiveCategory] = useState(() => categories[0] || '');
 
   useEffect(() => {
@@ -1023,7 +1035,6 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
   const allSecondariChecked = secondariSelectable.length > 0 && secondariChecked.length === secondariSelectable.length;
 
   const allPrimariConvalidati = primari.length > 0 && primari.every(c => c.convalidato);
-  const allPrimariDone        = filteredPrimari.length > 0 && filteredPrimari.every(c => c.convalidato);
   const allSecondariDone      = secondari.length > 0 && secondari.every(c => c.convalidato);
 
   const primariLabel   = allPrimariChecked   ? 'Convalida tutti' : `Convalida (${primariChecked.length})`;
@@ -1124,7 +1135,8 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
               <div style={{ display: 'flex', borderBottom: '2px solid #bbc5d7', overflowX: 'auto' }}>
                 {categories.map(cat => {
                   const isActive = cat === activeCategory;
-                  const hasFailure = primari.filter(c => (c.macro_categoria || 'Generale') === cat).some(c => c.esito === 'non_superato');
+                  const catControls = primari.filter(c => (c.macro_categoria || 'Generale') === cat);
+                  const catDone = catControls.length > 0 && catControls.every(c => c.convalidato);
                   return (
                     <button
                       key={cat}
@@ -1138,7 +1150,10 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
                         display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
                       }}
                     >
-                      {hasFailure && <WarningTriangleIcon />}
+                      {catDone
+                        ? <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}><circle cx="8" cy="8" r="7" fill="#eaf4ea" stroke="#2a6b2a" strokeWidth="1.5"/><path d="M4.5 8L6.5 10L11.5 5.5" stroke="#2a6b2a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        : <WarningTriangleIcon />
+                      }
                       {cat}
                     </button>
                   );
@@ -1182,7 +1197,7 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
                 onCheckRow={(i, val) => setCheckedPrimari(prev => ({ ...prev, [i]: val }))}
                 onDettaglioRow={setDettaglioCtrl}
               />
-              {allPrimariDone && (
+              {allPrimariConvalidati && (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '12px 16px', borderRadius: 8,
@@ -1193,7 +1208,7 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
                     <path d="M7 12L10.5 15.5L17 9" stroke="#2a6b2a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, lineHeight: '24px', color: '#2a6b2a' }}>
-                    Tutti i controlli primari di questa categoria sono stati convalidati.
+                    Tutti i controlli primari sono stati convalidati.
                   </span>
                 </div>
               )}
