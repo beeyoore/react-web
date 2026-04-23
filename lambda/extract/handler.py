@@ -26,6 +26,7 @@ bedrock = boto3.client(
 )
 dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "eu-central-1"))
 lambda_client = boto3.client("lambda", region_name=os.environ.get("AWS_REGION", "eu-central-1"))
+sfn_client = boto3.client("stepfunctions", region_name=os.environ.get("AWS_REGION", "eu-central-1"))
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -2913,6 +2914,153 @@ def _check_and_trigger_servizi_ingestor(
 
 
 # ---------------------------------------------------------------------------
+# Checklist Step Functions trigger
+# ---------------------------------------------------------------------------
+
+# Mapping categoria_personale → tipo_checklist usato dall'orchestratore
+_CHECKLIST_TYPE_BY_CATEGORIA: dict[str, str] = {
+    "docente": "ricostruzione_carriera_docenti",
+    "ATA":     "ricostruzione_carriera_ata",
+}
+
+
+def _check_and_trigger_checklist_sfn(
+    id_pratica: str,
+    updated_metadata_state: dict,
+    document_items: list[dict],
+    documenti_attesi: int,
+) -> bool:
+    """
+    Avvia la Step Functions dei controlli checklist quando tutti i documenti
+    caricati per la pratica sono stati estratti.
+
+    Precondizioni:
+      1. Variabile d'ambiente CHECKLIST_SFN_ARN configurata.
+      2. documenti_attesi > 0 e len(document_items) >= documenti_attesi
+         (tutti i documenti caricati dal FE sono stati estratti).
+      3. categoria_personale nota (serve per scegliere la checklist corretta).
+      4. La Step Functions non è già stata avviata (flag checklist_sfn_triggered
+         salvato su DynamoDB per idempotenza).
+
+    Restituisce True se l'esecuzione è stata avviata, False altrimenti.
+    """
+    sfn_arn = os.environ.get("CHECKLIST_SFN_ARN")
+    if not sfn_arn:
+        logger.info(
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=CHECKLIST_SFN_ARN_not_set",
+            id_pratica,
+        )
+        return False
+
+    # Precondizione 2: tutti i documenti caricati sono stati estratti.
+    estratti = len(document_items)
+    if documenti_attesi <= 0 or estratti < documenti_attesi:
+        logger.info(
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=extraction_incomplete "
+            "estratti=%s documenti_attesi=%s",
+            id_pratica,
+            estratti,
+            documenti_attesi,
+        )
+        return False
+
+    # Precondizione 3: categoria_personale nota → seleziona tipo_checklist.
+    categoria_personale = updated_metadata_state.get("categoria_personale", "")
+    tipo_checklist = os.environ.get(
+        "CHECKLIST_TYPE",
+        _CHECKLIST_TYPE_BY_CATEGORIA.get(categoria_personale, ""),
+    )
+    if not tipo_checklist:
+        logger.warning(
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=tipo_checklist_not_determinable "
+            "categoria_personale=%s",
+            id_pratica,
+            categoria_personale,
+        )
+        return False
+
+    # Precondizione 4: idempotenza — non riavviare se già triggerato.
+    pratiche_table_name = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMO_TABLE")
+    if pratiche_table_name:
+        try:
+            tbl = dynamodb.Table(pratiche_table_name)
+            resp = tbl.get_item(Key={"PK": f"PRATICA#{id_pratica}", "SK": "METADATA"})
+            if resp.get("Item", {}).get("checklist_sfn_triggered"):
+                logger.info(
+                    "checklist_sfn_trigger_skipped id_pratica=%s reason=already_triggered",
+                    id_pratica,
+                )
+                return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "checklist_sfn_idempotency_check_failed id_pratica=%s error=%s — proceeding with trigger",
+                id_pratica,
+                exc,
+            )
+
+    # Tutte le precondizioni soddisfatte: avvio asincrono della Step Functions.
+    import hashlib
+    execution_name = (
+        f"{id_pratica[:40]}-"
+        + hashlib.md5(id_pratica.encode()).hexdigest()[:8]  # noqa: S324
+    )
+
+    payload = {
+        "id_pratica":     id_pratica,
+        "tipo_checklist": tipo_checklist,
+    }
+
+    try:
+        sfn_client.start_execution(
+            stateMachineArn=sfn_arn,
+            name=execution_name,
+            input=json.dumps(payload, ensure_ascii=False),
+        )
+        logger.info(
+            "checklist_sfn_trigger_sent id_pratica=%s tipo_checklist=%s execution_name=%s sfn_arn=%s",
+            id_pratica,
+            tipo_checklist,
+            execution_name,
+            sfn_arn,
+        )
+    except sfn_client.exceptions.ExecutionAlreadyExists:
+        logger.info(
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=execution_already_exists execution_name=%s",
+            id_pratica,
+            execution_name,
+        )
+        return False
+    except ClientError as exc:
+        logger.error(
+            "checklist_sfn_trigger_failed id_pratica=%s error=%s",
+            id_pratica,
+            exc,
+        )
+        return False
+
+    # Salva il flag di idempotenza su DynamoDB.
+    if pratiche_table_name:
+        try:
+            tbl = dynamodb.Table(pratiche_table_name)
+            tbl.update_item(
+                Key={"PK": f"PRATICA#{id_pratica}", "SK": "METADATA"},
+                UpdateExpression="SET checklist_sfn_triggered = :v, checklist_sfn_execution = :e",
+                ExpressionAttributeValues={
+                    ":v": True,
+                    ":e": execution_name,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "checklist_sfn_flag_write_failed id_pratica=%s error=%s",
+                id_pratica,
+                exc,
+            )
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Lambda handler
 # ---------------------------------------------------------------------------
 
@@ -3184,6 +3332,13 @@ def lambda_handler(event: dict, context) -> dict:
             updated_metadata_state=metadata_state,
             document_items=document_items_fresh,
         )
+        documenti_attesi = int((pratica_metadata or {}).get("documenti_attesi", 0))
+        checklist_sfn_triggered = _check_and_trigger_checklist_sfn(
+            id_pratica=id_pratica,
+            updated_metadata_state=metadata_state,
+            document_items=document_items_fresh,
+            documenti_attesi=documenti_attesi,
+        )
         pending_classified_triggered = 0
         if categoria_just_determined:
             classified_keys = list_classified_keys_for_pratica(
@@ -3209,6 +3364,7 @@ def lambda_handler(event: dict, context) -> dict:
                 "schemaFile": schema_filename_for_categoria(categoria_personale),
                 "metadataState": metadata_state,
                 "serviziIngestorTriggered": trigger_sent,
+                "checklistSfnTriggered": checklist_sfn_triggered,
                 "pendingClassifiedTriggered": pending_classified_triggered,
             }
         )
