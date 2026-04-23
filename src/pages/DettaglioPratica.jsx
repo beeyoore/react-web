@@ -133,6 +133,26 @@ function IconXCircle() {
   );
 }
 
+function WarningTriangleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M8 2.5L14 13.5H2L8 2.5Z" stroke="#c25700" strokeWidth="1.5" strokeLinejoin="round" fill="#fff8eb" />
+      <line x1="8" y1="7" x2="8" y2="10" stroke="#c25700" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="8" cy="12" r="0.75" fill="#c25700" />
+    </svg>
+  );
+}
+
+function InfoTooltipIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="9" cy="9" r="8" stroke="#737373" strokeWidth="1.5" />
+      <line x1="9" y1="8" x2="9" y2="13" stroke="#737373" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="9" cy="6" r="0.75" fill="#737373" />
+    </svg>
+  );
+}
+
 // ── Status tag ─────────────────────────────────────────────────────────────
 
 const TAG_STYLES = {
@@ -149,7 +169,7 @@ const TAG_LABELS = {
   non_superati:   'NON SUPERATI - INTEGRAZIONE',
 };
 
-function StatusTag({ status }) {
+function StatusTag({ status, labelOverride }) {
   const style = TAG_STYLES[status] || TAG_STYLES.non_avviati;
   return (
     <span style={{
@@ -157,7 +177,7 @@ function StatusTag({ status }) {
       fontSize: 12, fontWeight: 500, letterSpacing: 1, textTransform: 'uppercase',
       whiteSpace: 'nowrap', flexShrink: 0, ...style,
     }}>
-      {TAG_LABELS[status]}
+      {labelOverride || TAG_LABELS[status]}
     </span>
   );
 }
@@ -320,6 +340,7 @@ function InfoPraticaCard({ praticeData, uploadedFiles }) {
 // ── Controlli table ────────────────────────────────────────────────────────
 
 const COL_WIDTHS = { checkbox: 48, esito: 166, convalidato: 136, azioni: 170 };
+const AMM_COL_WIDTHS = { checkbox: 48, esito: 166, convalidato: 136, modificato: 136, azioni: 170 };
 
 const HEADER_STYLE = {
   background: 'white', borderBottom: '1px solid #bbc5d7',
@@ -443,6 +464,120 @@ function ControlliTable({ controls, checked, onCheckAll, onCheckRow, onDettaglio
   );
 }
 
+function AmmTableRow({ ctrl, index, checked, onCheck, onDettaglio }) {
+  const isEven = index % 2 === 1;
+  const cellBg = isEven ? '#eef1f8' : '#fbfcff';
+  const cellStyle = {
+    background: cellBg, borderBottom: '1px solid #bbc5d7',
+    height: 64, display: 'flex', alignItems: 'center', padding: 12,
+  };
+  const isDisabled = !!ctrl.convalidato;
+  return (
+    <>
+      <div style={{ ...cellStyle, width: AMM_COL_WIDTHS.checkbox, justifyContent: 'center', flexShrink: 0 }}>
+        <div
+          role="checkbox"
+          aria-checked={checked}
+          aria-disabled={isDisabled}
+          tabIndex={isDisabled ? -1 : 0}
+          onClick={() => !isDisabled && onCheck(!checked)}
+          onKeyDown={e => !isDisabled && e.key === ' ' && onCheck(!checked)}
+          style={{
+            width: 24, height: 24, borderRadius: 4, flexShrink: 0,
+            cursor: isDisabled ? 'not-allowed' : 'pointer',
+            border: `1px solid ${isDisabled ? '#bdbdbd' : 'var(--blue-main)'}`,
+            background: isDisabled ? '#f5f5f5' : checked ? 'var(--blue-main)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {checked && !isDisabled && (
+            <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+              <path d="M1 5L5 9L13 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </div>
+      </div>
+      <div style={{ ...cellStyle, flex: '1 0 0', minWidth: 0 }}>
+        <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
+          {ctrl.nome}
+        </span>
+      </div>
+      <div style={{ ...cellStyle, width: AMM_COL_WIDTHS.esito, flexShrink: 0 }}>
+        <EsitoChip esito={ctrl.esito} />
+      </div>
+      <div style={{ ...cellStyle, width: AMM_COL_WIDTHS.convalidato, flexShrink: 0 }}>
+        <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
+          {ctrl.convalidato ? 'Sì' : 'No'}
+        </span>
+      </div>
+      <div style={{ ...cellStyle, width: AMM_COL_WIDTHS.modificato, flexShrink: 0 }}>
+        <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
+          {ctrl.modificato ? 'Sì' : 'No'}
+        </span>
+      </div>
+      <div style={{ ...cellStyle, width: AMM_COL_WIDTHS.azioni, flexShrink: 0 }}>
+        <button
+          onClick={() => onDettaglio(ctrl)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+            letterSpacing: 1, color: 'var(--blue-main)', whiteSpace: 'nowrap',
+          }}
+        >
+          Vai al dettaglio
+        </button>
+      </div>
+    </>
+  );
+}
+
+function AmmControlliTable({ controls, checked, onCheckAll, onCheckRow, onDettaglioRow }) {
+  const allChecked = controls.length > 0 && controls.every((_, i) => checked[i]);
+  return (
+    <div style={{ border: '1px solid #bbc5d7', borderRadius: 8, overflow: 'hidden', width: '100%' }}>
+      <div style={{ display: 'flex' }}>
+        <div style={{ ...HEADER_STYLE, width: AMM_COL_WIDTHS.checkbox, justifyContent: 'center', flexShrink: 0 }}>
+          <div
+            role="checkbox"
+            aria-checked={allChecked}
+            tabIndex={0}
+            onClick={() => onCheckAll(!allChecked)}
+            onKeyDown={e => e.key === ' ' && onCheckAll(!allChecked)}
+            style={{
+              width: 24, height: 24, borderRadius: 4, flexShrink: 0, cursor: 'pointer',
+              border: '1px solid var(--blue-main)',
+              background: allChecked ? 'var(--blue-main)' : 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            {allChecked && (
+              <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+                <path d="M1 5L5 9L13 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        </div>
+        <div style={{ ...HEADER_STYLE, flex: '1 0 0', minWidth: 0 }}>Controllo</div>
+        <div style={{ ...HEADER_STYLE, width: AMM_COL_WIDTHS.esito, flexShrink: 0 }}>Esito</div>
+        <div style={{ ...HEADER_STYLE, width: AMM_COL_WIDTHS.convalidato, flexShrink: 0 }}>Convalidato</div>
+        <div style={{ ...HEADER_STYLE, width: AMM_COL_WIDTHS.modificato, flexShrink: 0 }}>Modificato</div>
+        <div style={{ ...HEADER_STYLE, width: AMM_COL_WIDTHS.azioni, flexShrink: 0 }}>Azioni</div>
+      </div>
+      {controls.map((ctrl, i) => (
+        <div key={ctrl.id} style={{ display: 'flex' }}>
+          <AmmTableRow
+            ctrl={ctrl}
+            index={i}
+            checked={!!checked[i]}
+            onCheck={(val) => onCheckRow(i, val)}
+            onDettaglio={onDettaglioRow}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Modals ─────────────────────────────────────────────────────────────────
 
 function ModalOverlay({ children }) {
@@ -457,7 +592,7 @@ function ModalOverlay({ children }) {
   );
 }
 
-function ConvalidaAlertModal({ onAnnulla, onConferma, allChecked }) {
+function ConvalidaAlertModal({ onAnnulla, onConferma, allChecked, tipoLabel = 'controlli preliminari' }) {
   return (
     <ModalOverlay>
       <div style={{
@@ -478,12 +613,12 @@ function ConvalidaAlertModal({ onAnnulla, onConferma, allChecked }) {
         </div>
         <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
           {allChecked
-            ? <>Sei sicuro di voler convalidare<br />i controlli preliminari?</>
-            : <>Sei sicuro di voler convalidare<br />i controlli preliminari selezionati?</>
+            ? <>Sei sicuro di voler convalidare<br />i {tipoLabel}?</>
+            : <>Sei sicuro di voler convalidare<br />i {tipoLabel} selezionati?</>
           }
         </h3>
         <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
-          Se convalidi, i controlli preliminari non saranno più modificabili.
+          Se convalidi, i {tipoLabel} non saranno più modificabili.
         </p>
         <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
           <button
@@ -512,8 +647,9 @@ function ConvalidaAlertModal({ onAnnulla, onConferma, allChecked }) {
   );
 }
 
-function ConvalidaSuccessModal({ remaining, onHome, onRimani }) {
+function ConvalidaSuccessModal({ remaining, onHome, onRimani, tipoLabel = 'controlli preliminari', messaggioCompletato }) {
   const isParziale = remaining > 0;
+  const defaultMsg = messaggioCompletato || 'Non verranno effettuati ulteriori controlli, in quanto quelli preliminari non sono stati superati.';
   return (
     <ModalOverlay>
       <div style={{
@@ -532,14 +668,14 @@ function ConvalidaSuccessModal({ remaining, onHome, onRimani }) {
         </div>
         <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
           {isParziale
-            ? <>I controlli preliminari selezionati<br />sono stati convalidati con successo!</>
-            : <>I controlli preliminari sono stati<br />convalidati con successo!</>
+            ? <>I {tipoLabel} selezionati<br />sono stati convalidati con successo!</>
+            : <>I {tipoLabel} sono stati<br />convalidati con successo!</>
           }
         </h3>
         <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0, textAlign: 'center' }}>
           {isParziale
             ? `Sono rimasti ${remaining} ${remaining === 1 ? 'controllo' : 'controlli'} in attesa di convalida.`
-            : 'Non verranno effettuati ulteriori controlli, in quanto quelli preliminari non sono stati superati.'
+            : defaultMsg
           }
         </p>
         <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
@@ -818,26 +954,287 @@ function ControlliPreliminaryCard({ controls, idPratica, onRefresh, onHome }) {
   );
 }
 
-function ControlliAmmCard({ prelStatus, ammStatus }) {
-  const descrizione = prelStatus === 'non_superati'
-    ? 'Controlli automatici non avviabili. È stato rilevato un errore bloccante nei controlli preliminari.'
-    : 'I controlli amministrativo-contabili non possono essere avviati fino al completamento dei controlli preliminari.';
+const DESC_AMM_STATUS = {
+  non_avviati:    'I controlli amministrativo-contabili non possono essere avviati fino al completamento dei controlli preliminari.',
+  in_lavorazione: 'I controlli amministrativo-contabili sono in corso di elaborazione.',
+  superati:       'Tutti i controlli amministrativo-contabili sono stati superati.',
+  non_superati:   'I controlli amministrativo-contabili sono stati completati e i relativi esiti sono disponibili per la consultazione. Verifica i risultati proposti dal sistema e procedi con la convalida dell\'esito di tutti i controlli primari. Una volta completati si abiliterà la modifica dei controlli secondari non bloccanti.',
+};
+
+function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }) {
+  const status = deriveAmmStatus(controls);
+
+  const primari   = controls.filter(c => c.tipo !== 'secondario');
+  const secondari = controls.filter(c => c.tipo === 'secondario');
+
+  const categories = [...new Set(primari.map(c => c.macro_categoria || 'Generale'))];
+  const [activeCategory, setActiveCategory] = useState(() => categories[0] || '');
+
+  useEffect(() => {
+    if (categories.length > 0 && !categories.includes(activeCategory)) {
+      setActiveCategory(categories[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controls]);
+
+  const filteredPrimari = primari.filter(c => (c.macro_categoria || 'Generale') === activeCategory);
+
+  const [checkedPrimari,   setCheckedPrimari]   = useState({});
+  const [checkedSecondari, setCheckedSecondari] = useState({});
+  const [showAlertPrimari,   setShowAlertPrimari]   = useState(false);
+  const [showAlertSecondari, setShowAlertSecondari] = useState(false);
+  const [showSuccess,  setShowSuccess]  = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [saveError,    setSaveError]    = useState(null);
+  const [remaining,    setRemaining]    = useState(0);
+  const [pendingIds,   setPendingIds]   = useState([]);
+  const [pendingTipo,  setPendingTipo]  = useState('');
+  const [dettaglioCtrl, setDettaglioCtrl] = useState(null);
+
+  const primariConvalidatiSet   = new Set(filteredPrimari.map((c, i) => c.convalidato ? i : null).filter(i => i !== null));
+  const secondariConvalidatiSet = new Set(secondari.map((c, i) => c.convalidato ? i : null).filter(i => i !== null));
+
+  const primariSelectable   = filteredPrimari.map((_, i) => i).filter(i => !primariConvalidatiSet.has(i));
+  const secondariSelectable = secondari.map((_, i) => i).filter(i => !secondariConvalidatiSet.has(i));
+
+  const primariChecked   = Object.entries(checkedPrimari).filter(([k, v]) => v && !primariConvalidatiSet.has(Number(k))).map(([k]) => Number(k));
+  const secondariChecked = Object.entries(checkedSecondari).filter(([k, v]) => v && !secondariConvalidatiSet.has(Number(k))).map(([k]) => Number(k));
+
+  const anyPrimariChecked   = primariChecked.length > 0;
+  const anySecondariChecked = secondariChecked.length > 0;
+  const allPrimariChecked   = primariSelectable.length > 0 && primariChecked.length === primariSelectable.length;
+  const allSecondariChecked = secondariSelectable.length > 0 && secondariChecked.length === secondariSelectable.length;
+
+  const allPrimariConvalidati = primari.length > 0 && primari.every(c => c.convalidato);
+  const allPrimariDone        = filteredPrimari.length > 0 && filteredPrimari.every(c => c.convalidato);
+  const allSecondariDone      = secondari.length > 0 && secondari.every(c => c.convalidato);
+
+  const primariLabel   = allPrimariChecked   ? 'Convalida tutti' : `Convalida (${primariChecked.length})`;
+  const secondariLabel = allSecondariChecked ? 'Convalida tutti' : `Convalida (${secondariChecked.length})`;
+
+  function handleCheckAllPrimari(val) {
+    const next = {};
+    primariSelectable.forEach(i => { next[i] = val; });
+    setCheckedPrimari(next);
+  }
+
+  function handleCheckAllSecondari(val) {
+    const next = {};
+    secondariSelectable.forEach(i => { next[i] = val; });
+    setCheckedSecondari(next);
+  }
+
+  function openConvalida(ids, tipo) {
+    setSaveError(null);
+    setPendingIds(ids);
+    setPendingTipo(tipo);
+    if (tipo === 'primari') setShowAlertPrimari(true);
+    else setShowAlertSecondari(true);
+  }
+
+  async function executeConvalida() {
+    setSaving(true);
+    setSaveError(null);
+    const pool = pendingTipo === 'primari' ? primari : secondari;
+    setRemaining(Math.max(0, pool.filter(c => !c.convalidato).length - pendingIds.length));
+    try {
+      await convalidaControlli(idPratica, 'amm_contabile', pendingIds);
+      if (pendingTipo === 'primari') setCheckedPrimari({});
+      else setCheckedSecondari({});
+      if (onRefresh) await onRefresh();
+      setShowSuccess(true);
+    } catch (err) {
+      setSaveError(err.message || 'Errore durante la convalida. Riprova.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const ammLabelOverride = status === 'non_superati' ? 'NON SUPERATI · OSSERVAZIONE' : undefined;
 
   return (
-    <div style={{
-      background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
-      padding: 16, display: 'flex', flexDirection: 'column', gap: 8,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <p style={{ fontSize: 20, fontWeight: 600, letterSpacing: 1, lineHeight: '26px', color: 'var(--text-main)', margin: 0, whiteSpace: 'nowrap' }}>
-          Controlli amministrativo-contabili
+    <>
+      {showAlertPrimari && (
+        <ConvalidaAlertModal
+          tipoLabel="controlli primari"
+          allChecked={allPrimariChecked}
+          onAnnulla={() => setShowAlertPrimari(false)}
+          onConferma={() => { setShowAlertPrimari(false); executeConvalida(); }}
+        />
+      )}
+      {showAlertSecondari && (
+        <ConvalidaAlertModal
+          tipoLabel="controlli secondari"
+          allChecked={allSecondariChecked}
+          onAnnulla={() => setShowAlertSecondari(false)}
+          onConferma={() => { setShowAlertSecondari(false); executeConvalida(); }}
+        />
+      )}
+      {showSuccess && (
+        <ConvalidaSuccessModal
+          remaining={remaining}
+          tipoLabel={`controlli ${pendingTipo}`}
+          messaggioCompletato="La convalida dei controlli è stata completata."
+          onHome={() => { setShowSuccess(false); if (onHome) onHome(); }}
+          onRimani={() => setShowSuccess(false)}
+        />
+      )}
+      {dettaglioCtrl && (
+        <DettaglioControlloModal ctrl={dettaglioCtrl} onClose={() => setDettaglioCtrl(null)} />
+      )}
+
+      <div style={{
+        background: '#fbfcff', border: '1px solid var(--grey-border)', borderRadius: 8,
+        padding: 16, display: 'flex', flexDirection: 'column', gap: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <h4 style={{ fontSize: 26, fontWeight: 600, letterSpacing: 1, lineHeight: '34px', color: 'var(--text-main)', margin: 0, whiteSpace: 'nowrap' }}>
+            Controlli amministrativo-contabili
+          </h4>
+          <StatusTag status={status} labelOverride={ammLabelOverride} />
+        </div>
+
+        <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+          {prelStatus === 'non_superati' && controls.length === 0
+            ? 'Controlli automatici non avviabili. È stato rilevato un errore bloccante nei controlli preliminari.'
+            : DESC_AMM_STATUS[status]}
         </p>
-        <StatusTag status={ammStatus} />
+
+        {controls.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Category tabs */}
+            {categories.length > 0 && (
+              <div style={{ display: 'flex', borderBottom: '2px solid #bbc5d7', overflowX: 'auto' }}>
+                {categories.map(cat => {
+                  const isActive = cat === activeCategory;
+                  const hasFailure = primari.filter(c => (c.macro_categoria || 'Generale') === cat).some(c => c.esito === 'non_superato');
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => { setActiveCategory(cat); setCheckedPrimari({}); }}
+                      style={{
+                        padding: '10px 16px', background: 'none', border: 'none',
+                        borderBottom: isActive ? '2px solid var(--blue-main)' : '2px solid transparent',
+                        marginBottom: -2,
+                        cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 16,
+                        fontWeight: isActive ? 600 : 300, color: 'var(--text-main)',
+                        display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {hasFailure && <WarningTriangleIcon />}
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Convalida button – primary controls */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+              {saveError && (
+                <p style={{ fontSize: 14, color: '#e60000', margin: 0, letterSpacing: 1 }}>{saveError}</p>
+              )}
+              <button
+                disabled={!anyPrimariChecked || saving}
+                onClick={() => openConvalida(primariChecked.map(i => filteredPrimari[i].id), 'primari')}
+                style={{
+                  height: 40, minWidth: 160, padding: '8px 12px', borderRadius: 8, border: 'none',
+                  cursor: (anyPrimariChecked && !saving) ? 'pointer' : 'default',
+                  background: (anyPrimariChecked && !saving) ? 'var(--blue-main)' : '#d9d9d9',
+                  fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+                  letterSpacing: 1, lineHeight: '24px',
+                  color: (anyPrimariChecked && !saving) ? 'white' : '#a6a6a6',
+                }}
+              >
+                {saving && pendingTipo === 'primari' ? 'Salvataggio…' : primariLabel}
+              </button>
+            </div>
+
+            {/* Primary controls table */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+                  Controlli primari per categoria
+                </p>
+                <InfoTooltipIcon />
+              </div>
+              <AmmControlliTable
+                controls={filteredPrimari}
+                checked={checkedPrimari}
+                onCheckAll={handleCheckAllPrimari}
+                onCheckRow={(i, val) => setCheckedPrimari(prev => ({ ...prev, [i]: val }))}
+                onDettaglioRow={setDettaglioCtrl}
+              />
+              {allPrimariDone && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 16px', borderRadius: 8,
+                  background: '#eaf4ea', border: '1px solid #82c282',
+                }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                    <circle cx="12" cy="12" r="9" fill="#eaf4ea" stroke="#2a6b2a" strokeWidth="1.5" />
+                    <path d="M7 12L10.5 15.5L17 9" stroke="#2a6b2a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, lineHeight: '24px', color: '#2a6b2a' }}>
+                    Tutti i controlli primari di questa categoria sono stati convalidati.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Secondary controls */}
+            {secondari.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <p style={{ fontSize: 18, fontWeight: 600, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+                      Controlli secondari
+                    </p>
+                    <InfoTooltipIcon />
+                  </div>
+                  <button
+                    disabled={!anySecondariChecked || saving || !allPrimariConvalidati}
+                    onClick={() => openConvalida(secondariChecked.map(i => secondari[i].id), 'secondari')}
+                    style={{
+                      height: 40, minWidth: 160, padding: '8px 12px', borderRadius: 8, border: 'none',
+                      cursor: (anySecondariChecked && !saving && allPrimariConvalidati) ? 'pointer' : 'default',
+                      background: (anySecondariChecked && !saving && allPrimariConvalidati) ? 'var(--blue-main)' : '#d9d9d9',
+                      fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
+                      letterSpacing: 1, lineHeight: '24px',
+                      color: (anySecondariChecked && !saving && allPrimariConvalidati) ? 'white' : '#a6a6a6',
+                    }}
+                  >
+                    {saving && pendingTipo === 'secondari' ? 'Salvataggio…' : secondariLabel}
+                  </button>
+                </div>
+                <AmmControlliTable
+                  controls={secondari}
+                  checked={checkedSecondari}
+                  onCheckAll={handleCheckAllSecondari}
+                  onCheckRow={(i, val) => setCheckedSecondari(prev => ({ ...prev, [i]: val }))}
+                  onDettaglioRow={setDettaglioCtrl}
+                />
+                {allSecondariDone && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 16px', borderRadius: 8,
+                    background: '#eaf4ea', border: '1px solid #82c282',
+                  }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                      <circle cx="12" cy="12" r="9" fill="#eaf4ea" stroke="#2a6b2a" strokeWidth="1.5" />
+                      <path d="M7 12L10.5 15.5L17 9" stroke="#2a6b2a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, lineHeight: '24px', color: '#2a6b2a' }}>
+                      Tutti i controlli secondari sono stati convalidati.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
-        {descrizione}
-      </p>
-    </div>
+    </>
   );
 }
 
@@ -881,7 +1278,6 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
   }, [idPratica]);
 
   const prelStatus = deriveControlliStatus(controlli.preliminari);
-  const ammStatus = deriveAmmStatus(controlli.amm_contabili);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -932,7 +1328,13 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
               />
             )}
             {activeTab === 'Controlli amministrativo-contabili' && (
-              <ControlliAmmCard prelStatus={prelStatus} ammStatus={ammStatus} />
+              <ControlliAmmCard
+                controls={controlli.amm_contabili}
+                idPratica={idPratica}
+                onRefresh={fetchControlli}
+                onHome={onHome}
+                prelStatus={prelStatus}
+              />
             )}
           </div>
         </div>
