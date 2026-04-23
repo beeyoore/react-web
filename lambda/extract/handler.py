@@ -2931,29 +2931,23 @@ def _check_and_trigger_checklist_sfn(
     documenti_attesi: int,
 ) -> bool:
     """
-    Invoca l'orchestrator Lambda in modo asincrono quando tutti i documenti
+    Avvia la Step Functions dei controlli checklist quando tutti i documenti
     caricati per la pratica sono stati estratti.
 
-    L'orchestrator si occupa di:
-      - caricare lo schema checklist da S3
-      - filtrare i controlli attivi
-      - costruire il payload completo con l'array 'controlli'
-      - avviare la Step Functions
-
     Precondizioni:
-      1. Variabile d'ambiente CHECKLIST_ORCHESTRATOR_FUNCTION_NAME configurata.
+      1. Variabile d'ambiente CHECKLIST_SFN_ARN configurata.
       2. documenti_attesi > 0 e len(document_items) >= documenti_attesi
          (tutti i documenti caricati dal FE sono stati estratti).
       3. categoria_personale nota (serve per scegliere la checklist corretta).
-      4. L'orchestrator non è già stato triggerato (flag checklist_sfn_triggered
+      4. La Step Functions non è già stata avviata (flag checklist_sfn_triggered
          salvato su DynamoDB per idempotenza).
 
-    Restituisce True se il trigger è stato inviato, False altrimenti.
+    Restituisce True se l'esecuzione è stata avviata, False altrimenti.
     """
-    orchestrator_function_name = os.environ.get("CHECKLIST_ORCHESTRATOR_FUNCTION_NAME")
-    if not orchestrator_function_name:
+    sfn_arn = os.environ.get("CHECKLIST_SFN_ARN")
+    if not sfn_arn:
         logger.info(
-            "checklist_sfn_trigger_skipped id_pratica=%s reason=CHECKLIST_ORCHESTRATOR_FUNCTION_NAME_not_set",
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=CHECKLIST_SFN_ARN_not_set",
             id_pratica,
         )
         return False
@@ -2986,11 +2980,7 @@ def _check_and_trigger_checklist_sfn(
         return False
 
     # Precondizione 4: idempotenza — non riavviare se già triggerato.
-    pratiche_table_name = (
-        os.environ.get("PRATICHE_TABLE")
-        or os.environ.get("DYNAMO_TABLE")
-        or os.environ.get("DYNAMODB_TABLE")  # fallback sulla stessa tabella usata dall'extractor
-    )
+    pratiche_table_name = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMO_TABLE")
     if pratiche_table_name:
         try:
             tbl = dynamodb.Table(pratiche_table_name)
@@ -3008,24 +2998,38 @@ def _check_and_trigger_checklist_sfn(
                 exc,
             )
 
-    # Tutte le precondizioni soddisfatte: invocazione asincrona dell'orchestrator.
+    # Tutte le precondizioni soddisfatte: avvio asincrono della Step Functions.
+    import hashlib
+    execution_name = (
+        f"{id_pratica[:40]}-"
+        + hashlib.md5(id_pratica.encode()).hexdigest()[:8]  # noqa: S324
+    )
+
     payload = {
         "id_pratica":     id_pratica,
         "tipo_checklist": tipo_checklist,
     }
 
     try:
-        lambda_client.invoke(
-            FunctionName=orchestrator_function_name,
-            InvocationType="Event",  # asincrono: fire-and-forget
-            Payload=json.dumps(payload, ensure_ascii=False).encode(),
+        sfn_client.start_execution(
+            stateMachineArn=sfn_arn,
+            name=execution_name,
+            input=json.dumps(payload, ensure_ascii=False),
         )
         logger.info(
-            "checklist_sfn_trigger_sent id_pratica=%s tipo_checklist=%s orchestrator=%s",
+            "checklist_sfn_trigger_sent id_pratica=%s tipo_checklist=%s execution_name=%s sfn_arn=%s",
             id_pratica,
             tipo_checklist,
-            orchestrator_function_name,
+            execution_name,
+            sfn_arn,
         )
+    except sfn_client.exceptions.ExecutionAlreadyExists:
+        logger.info(
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=execution_already_exists execution_name=%s",
+            id_pratica,
+            execution_name,
+        )
+        return False
     except ClientError as exc:
         logger.error(
             "checklist_sfn_trigger_failed id_pratica=%s error=%s",
@@ -3040,10 +3044,10 @@ def _check_and_trigger_checklist_sfn(
             tbl = dynamodb.Table(pratiche_table_name)
             tbl.update_item(
                 Key={"PK": f"PRATICA#{id_pratica}", "SK": "METADATA"},
-                UpdateExpression="SET checklist_sfn_triggered = :v, checklist_orchestrator = :o",
+                UpdateExpression="SET checklist_sfn_triggered = :v, checklist_sfn_execution = :e",
                 ExpressionAttributeValues={
                     ":v": True,
-                    ":o": orchestrator_function_name,
+                    ":e": execution_name,
                 },
             )
         except Exception as exc:  # noqa: BLE001
