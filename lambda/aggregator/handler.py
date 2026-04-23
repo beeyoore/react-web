@@ -34,7 +34,8 @@ logger.setLevel(logging.INFO)
 dynamodb = boto3.resource("dynamodb")
 
 # --- Variabili d'ambiente ---
-RISULTATI_TABLE = os.environ["RISULTATI_TABLE"]   # tabella DynamoDB creata dal FE
+RISULTATI_TABLE = os.environ["RISULTATI_TABLE"]   # tabella DynamoDB controlli
+PRATICHE_TABLE  = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMODB_TABLE", "RTS_Pratiche")  # tabella metadata pratica
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,8 @@ def aggiorna_controllo_dynamo(
     motivazione: str,
     dettaglio: str,
     timestamp: str,
+    macro_categoria: str = "",
+    descrizione: str = "",
 ) -> None:
     """
     Esegue update_item (upsert) su DynamoDB per il risultato di un controllo.
@@ -122,14 +125,18 @@ def aggiorna_controllo_dynamo(
                 "motivazione = :motivazione, "
                 "dettaglio = :dettaglio, "
                 "aggiornato_at = :ts, "
-                "elaborato = :elaborato"
+                "elaborato = :elaborato, "
+                "macro_categoria = :macro_categoria, "
+                "descrizione = :descrizione"
             ),
             ExpressionAttributeValues={
-                ":esito":       esito,
-                ":motivazione": motivazione,
-                ":dettaglio":   dettaglio,
-                ":ts":          timestamp,
-                ":elaborato":   True,
+                ":esito":          esito,
+                ":motivazione":    motivazione,
+                ":dettaglio":      dettaglio,
+                ":ts":             timestamp,
+                ":elaborato":      True,
+                ":macro_categoria": macro_categoria,
+                ":descrizione":    descrizione,
             },
         )
         logger.info(f"Aggiornato: PK={pk} SK={sk} esito={esito}")
@@ -148,6 +155,23 @@ def aggiorna_controllo_dynamo(
 # ---------------------------------------------------------------------------
 # Handler principale
 # ---------------------------------------------------------------------------
+
+def segna_checklist_elaborata(id_pratica: str, timestamp: str) -> None:
+    """
+    Scrive checklist_elaborata=True sul record METADATA della pratica.
+    Usato dal FE per sapere che il polling può fermarsi.
+    """
+    try:
+        table = dynamodb.Table(PRATICHE_TABLE)
+        table.update_item(
+            Key={"PK": f"PRATICA#{id_pratica}", "SK": "METADATA"},
+            UpdateExpression="SET checklist_elaborata = :v, checklist_elaborata_at = :ts",
+            ExpressionAttributeValues={":v": True, ":ts": timestamp},
+        )
+        logger.info(f"checklist_elaborata=True scritto per pratica '{id_pratica}'")
+    except Exception as e:
+        logger.warning(f"Impossibile scrivere checklist_elaborata per '{id_pratica}': {e}")
+
 
 def lambda_handler(event: dict, context) -> dict:
     """
@@ -205,13 +229,15 @@ def lambda_handler(event: dict, context) -> dict:
         try:
             esito, motivazione, dettaglio = estrai_campi_risposta(risultato)
             aggiorna_controllo_dynamo(
-                table       = table,
-                id_pratica  = id_pratica,
-                controllo_id= controllo_id,
-                esito       = esito,
-                motivazione = motivazione,
-                dettaglio   = dettaglio,
-                timestamp   = timestamp,
+                table        = table,
+                id_pratica   = id_pratica,
+                controllo_id = controllo_id,
+                esito        = esito,
+                motivazione  = motivazione,
+                dettaglio    = dettaglio,
+                timestamp    = timestamp,
+                macro_categoria = risultato.get("macro_categoria", ""),
+                descrizione     = risultato.get("descrizione", ""),
             )
             aggiornati += 1
 
@@ -225,6 +251,8 @@ def lambda_handler(event: dict, context) -> dict:
         f"Aggregazione completata per pratica '{id_pratica}': "
         f"{aggiornati} aggiornati, {errori} errori"
     )
+
+    segna_checklist_elaborata(id_pratica, timestamp)
 
     return {
         "id_pratica":  id_pratica,

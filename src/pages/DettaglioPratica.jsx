@@ -499,7 +499,7 @@ function AmmTableRow({ ctrl, index, checked, onCheck, onDettaglio }) {
       </div>
       <div style={{ ...cellStyle, flex: '1 0 0', minWidth: 0 }}>
         <span style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)' }}>
-          {ctrl.nome}
+          {ctrl.descrizione}
         </span>
       </div>
       <div style={{ ...cellStyle, width: AMM_COL_WIDTHS.esito, flexShrink: 0 }}>
@@ -722,12 +722,29 @@ function DettaglioControlloModal({ ctrl, onClose }) {
             Dettaglio controllo:
           </span>
           <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: 1, lineHeight: '30px', color: 'var(--text-main)', margin: 0 }}>
-            {ctrl.nome}
+            {ctrl.nome || ctrl.id}
           </h3>
+          {ctrl.macro_categoria && (
+            <span style={{ fontSize: 13, fontWeight: 400, letterSpacing: 1, color: '#737373', marginTop: 2 }}>
+              {ctrl.macro_categoria}
+            </span>
+          )}
           <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: '8px 0 0' }}>
             Consulta l&apos;esito del controllo.
           </p>
         </div>
+
+        {/* Descrizione */}
+        {ctrl.descrizione && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <p style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
+              Descrizione
+            </p>
+            <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0 }}>
+              {ctrl.descrizione}
+            </p>
+          </div>
+        )}
 
         {/* Esito controllo */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1259,12 +1276,13 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
       const prel = data.controlli_preliminari || [];
       const amm  = data.controlli_amm_contabili || [];
       setControlli({ preliminari: prel, amm_contabili: amm });
-      // Stop se i preliminari sono tutti terminali E almeno uno è non_superato
-      // (gli AMM contabili non partiranno mai), oppure se anche gli AMM sono tutti terminali.
+      // Ferma il polling se:
+      // - i preliminari sono tutti terminali E almeno uno non superato (gli AMM non partiranno)
+      // - oppure se l'aggregator ha segnato checklist_elaborata=true (tutti gli AMM scritti)
       const prelAllTerminal = allTerminal(prel);
-      const prelHasFailure = prel.some(c => c.esito === 'non_superato' || c.esito === 'errore');
-      const ammAllTerminal = allTerminal(amm);
-      if (prelAllTerminal && (prelHasFailure || ammAllTerminal)) stopPolling();
+      const prelHasFailure  = prel.some(c => c.esito === 'non_superato' || c.esito === 'errore');
+      const checklistElaborata = data.checklist_elaborata === true;
+      if (prelAllTerminal && (prelHasFailure || checklistElaborata)) stopPolling();
     } catch {
       // silently retry on next tick
     }

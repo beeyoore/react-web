@@ -86,6 +86,8 @@ def build_controllo_item(item: dict) -> dict:
         "nome": item.get("nome", ""),
         "esito": item.get("esito", "non_avviato"),
         "motivazione": item.get("motivazione", ""),
+        "descrizione": item.get("descrizione", ""),
+        "macro_categoria": item.get("macro_categoria", ""),
         "convalidato": item.get("convalidato", False),
         "aggiornato_at": item.get("aggiornato_at"),
     }
@@ -142,6 +144,7 @@ def lambda_handler(event: dict, context) -> dict:
         "created_at": metadata.get("created_at"),
         "flag_completezza": metadata.get("flag_completezza", False),
         "categoria_personale": metadata.get("categoria_personale"),
+        "checklist_elaborata": metadata.get("checklist_elaborata", False),
         "controlli_preliminari": controlli_preliminari,
         "controlli_amm_contabili": controlli_amm_contabili,
     })

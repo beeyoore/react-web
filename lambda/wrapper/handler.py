@@ -59,14 +59,45 @@ def invoke_bedrock_agent(agent_id: str, alias_id: str, prompt: str) -> str:
     except ClientError as e:
         raise RuntimeError(f"Errore invoke_agent (agent={agent_id}): {e}")
 
-    # Legge lo stream di completamento
+    # Legge lo stream di completamento gestendo tutti i tipi di eventi
     completion_text = ""
     event_stream = response.get("completion", [])
     for event in event_stream:
+        # Chunk di risposta testuale
         chunk = event.get("chunk", {})
         bytes_data = chunk.get("bytes", b"")
         if bytes_data:
             completion_text += bytes_data.decode("utf-8")
+            continue
+
+        # Errori restituiti nello stream (non sollevano ClientError)
+        for error_key in (
+            "internalServerException",
+            "modelTimeoutException",
+            "throttlingException",
+            "accessDeniedException",
+            "validationException",
+            "badGatewayException",
+            "dependencyFailedException",
+        ):
+            if error_key in event:
+                err_msg = event[error_key].get("message", str(event[error_key]))
+                raise RuntimeError(
+                    f"Errore Bedrock stream [{error_key}] (agent={agent_id}): {err_msg}"
+                )
+
+        # returnControl: l'agente ha bisogno di un'azione esterna — non supportato
+        if "returnControl" in event:
+            raise RuntimeError(
+                f"Il Bedrock agent {agent_id} ha restituito 'returnControl' "
+                f"(action group return-of-control) — non supportato da questo wrapper"
+            )
+
+    if not completion_text:
+        raise RuntimeError(
+            f"Bedrock agent {agent_id} ha restituito una risposta vuota "
+            f"(nessun chunk ricevuto nello stream)"
+        )
 
     logger.info(f"Risposta Bedrock ricevuta ({len(completion_text)} chars)")
     return completion_text
@@ -228,6 +259,7 @@ def lambda_handler(event: dict, context) -> dict:
         return {
             "controllo_id":    controllo_id,
             "macro_categoria": macro_categoria,
+            "descrizione":     event.get("descrizione", ""),
             "risposta_agente": risposta,
         }
 
@@ -238,6 +270,7 @@ def lambda_handler(event: dict, context) -> dict:
         return {
             "controllo_id":    controllo_id,
             "macro_categoria": macro_categoria,
+            "descrizione":     event.get("descrizione", ""),
             "risposta_agente": {
                 "esito":       "NON_VERIFICABILE",
                 "motivazione": f"Errore durante l'esecuzione del controllo: {str(e)}",
