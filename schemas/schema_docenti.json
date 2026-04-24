@@ -1,0 +1,249 @@
+{
+  "tipo_checklist": "ricostruzione_carriera_docenti",
+  "controlli": [
+    {
+      "controllo_id": "corrispondenza_nome_cognome",
+      "descrizione": "Corrispondenza del nome e cognome",
+      "macro_categoria": "Corrispondenza dei dati anagrafici",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica la corrispondenza del nome e del cognome nei documenti della pratica (Decreto di ricostruzione della carriera, Istanza di ricostruzione della carriera, Certificato di servizio, Contratto a tempo indeterminato, Titolo di studio, Decreto di superamento anno di formazione e prova)"
+    },
+    {
+      "controllo_id": "corrispondenza_luogo_nascita",
+      "descrizione": "Corrispondenza luogo di nascita",
+      "macro_categoria": "Corrispondenza dei dati anagrafici",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica la corrispondenza del luogo di nascita nei documenti della pratica (Decreto di ricostruzione della carriera, Istanza di ricostruzione della carriera, Certificato di servizio, Contratto a tempo indeterminato, Titolo di studio)"
+    },
+    {
+      "controllo_id": "corrispondenza_data_nascita",
+      "descrizione": "Corrispondenza data di nascita",
+      "macro_categoria": "Corrispondenza dei dati anagrafici",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica la corrispondenza della data di nascita nei documenti della pratica (Decreto di ricostruzione della carriera, Istanza di ricostruzione della carriera, Certificato di servizio, Contratto a tempo indeterminato, Titolo di studio)"
+    },
+    {
+      "controllo_id": "corrispondenza_codice_fiscale",
+      "descrizione": "Corrispondenza del Codice Fiscale",
+      "macro_categoria": "Corrispondenza dei dati anagrafici",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica la corrispondenza del codice fiscale nei documenti della pratica (Decreto di ricostruzione della carriera, Istanza di ricostruzione della carriera, Certificato di servizio, Contratto a tempo indeterminato, Titolo di studio)"
+    },
+    {
+      "controllo_id": "corrispondenza_qualifica_funzionale",
+      "descrizione": "Corrispondenza della qualifica funzionale",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica la corrispondenza della qualifica funzionale nei documenti della pratica (Decreto di ricostruzione della carriera, Istanza di ricostruzione della carriera, Contratto a tempo indeterminato)"
+    },
+    {
+      "controllo_id": "corrispondenza_oggetto_insegnamento",
+      "descrizione": "Corrispondenza dell'oggetto dell'insegnamento (solo docenti scuola secondaria)",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": "qualifica == secondaria",
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica la corrispondenza dell'oggetto dell'insegnamento nei documenti della pratica (Decreto di ricostruzione della carriera, Istanza di ricostruzione della carriera, Contratto a tempo indeterminato)"
+    },
+    {
+      "controllo_id": "corrispondenza_classe_concorso",
+      "descrizione": "Corrispondenza classe di concorso (solo docenti scuola secondaria)",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-verifica-classe-concorso",
+      "agent_id": "XMDSIEPYVZ",
+      "alias_id": "R02B5WJA1E",
+      "condizione": "qualifica == secondaria",
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Verifica che la classe di concorso sia la medesima nei seguenti documenti:\n\n1. Decreto di ricostruzione della carriera\n2. Contratto a tempo indeterminato"
+    },
+    {
+      "controllo_id": "corrispondenza_data_immissione_ruolo",
+      "descrizione": "Corrispondenza data di immissione in ruolo/data di decorrenza giuridica",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Il controllo è superato se, all'interno di tutti gli allegati in cui è citata, la data di immisione in ruolo del soggetto che ha fatto richiesta di ricostruzione di carriera è la medesima. Documenti: Decreto di ricostruzione, Istanza di ricostruzione, Contratto a tempo indeterminato"
+    },
+    {
+      "controllo_id": "corrispondenza_data_conferma_ruolo",
+      "descrizione": "Corrispondenza data di conferma in ruolo/data di superamento del periodo di prova",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Il controllo è superato se, all'interno di tutti gli allegati in cui è citata, la data di conferma in ruolo del soggetto che ha fatto richiesta di ricostruzione di carriera è la medesima. Documenti: Decreto di ricostruzione, Decreto di superamento periodo di prova"
+    },
+    {
+      "controllo_id": "corrispondenza_data_decorrenza_economica",
+      "descrizione": "Corrispondenza della data di decorrenza economica/data di assunzione in servizio",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Il controllo è superato se, all'interno di tutti gli allegati in cui è citata, la data di decorrenza economica del soggetto che ha fatto richiesta di ricostruzione di carriera è la medesima. Documenti: Decreto di ricostruzione, Istanza di ricostruzione, Contratto a tempo indeterminato"
+    },
+    {
+      "controllo_id": "corrispondenza_ymd_servizi_preruolo",
+      "descrizione": "Corrispondenza anni/mesi/giorni servizi preruolo per ordine scuola",
+      "macro_categoria": "Corrispondenza dei dati professionali",
+      "agente": "agente-verifica-ymd-servizi-preruolo",
+      "agent_id": "LMA42KN2WR",
+      "alias_id": "IZP9WDUC3N",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "Per la pratica: {id_pratica} esegui il controllo di corrispondenza degli anni, mesi e giorni dei servizi preruolo riconosciuti per ordine scuola. Usa esclusivamente la funzione controlla_preruolo. Restituisci solo il JSON finale prodotto dalla funzione."
+    },
+    {
+      "controllo_id": "coerenza_classe_concorso_servizi_primaria_infanzia",
+      "descrizione": "Coerenza della classe di concorso per servizi preruolo scuola primaria/infanzia",
+      "macro_categoria": "Riconoscibilità dei servizi e delle assenze",
+      "agente": "agente-controllo-servizi",
+      "agent_id": "7TGPDHHHCL",
+      "alias_id": "LD93OHSBWL",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Per ciascun servizio preruolo con qualifica professionale relativa a docenti della scuola primaria o dell'infanzia, il controllo è superato se l'interessato possiede uno dei seguenti titoli di studio: Laurea magistrale in scienze della formazione primaria, Diploma Magistrale o Diploma di Liceo Socio-Psico-Pedagogico o Diploma sperimentale a indirizzo linguistico. Se questo titolo è un diploma, inoltre, verifica che sia conseguito entro l'anno scolastico 2001-2002. Interroga i seguenti documenti: Titolo di studio, Certificato di servizi"
+    },
+    {
+      "controllo_id": "coerenza_classe_concorso_servizi_secondaria",
+      "descrizione": "Coerenza della classe di concorso per servizi preruolo scuola secondaria",
+      "macro_categoria": "Riconoscibilità dei servizi e delle assenze",
+      "agente": "lambda",
+      "agent_id": null,
+      "alias_id": null,
+      "condizione": "qualifica == secondaria",
+      "tipo_invocazione": "lambda",
+      "lambda_function_name": "verifica-abilitazione",
+      "prompt": null
+    },
+    {
+      "controllo_id": "possesso_titolo_studio",
+      "descrizione": "Possesso del titolo di studio",
+      "macro_categoria": "Riconoscibilità dei servizi e delle assenze",
+      "agente": "agente-controllo-servizi",
+      "agent_id": "7TGPDHHHCL",
+      "alias_id": "LD93OHSBWL",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Per ciascun servizio, verifica che la data di inizio del servizio sia successiva alla data del conseguimento del titolo di studio. Interroga i documenti: Titolo di studio, Certificato di servizio"
+    },
+    {
+      "controllo_id": "verifica_qualifica_tipologia_istituto",
+      "descrizione": "Verifica della qualifica e tipologia di istituto nei servizi preruolo",
+      "macro_categoria": "Riconoscibilità dei servizi e delle assenze",
+      "agente": "agente-controllo-servizi",
+      "agent_id": "7TGPDHHHCL",
+      "alias_id": "LD93OHSBWL",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica}\nEsegui il controllo: Verifica della qualifica e tipologia di istituto nei servizi preruolo.\nSegui la procedura del system prompt e interroga il catalogo servizi docenti dopo aver filtrato i soli servizi preruolo."
+    },
+    {
+      "controllo_id": "verifica_assenze_interruttive",
+      "descrizione": "Verifica delle assenze interruttive la progressione di carriera",
+      "macro_categoria": "Riconoscibilità dei servizi e delle assenze",
+      "agente": "lambda",
+      "agent_id": null,
+      "alias_id": null,
+      "condizione": null,
+      "tipo_invocazione": "lambda",
+      "lambda_function_name": "classifica-assenze",
+      "prompt": null
+    },
+    {
+      "controllo_id": "verifica_conteggio_giorni_preruolo",
+      "descrizione": "Verifica del conteggio dei giorni di servizio preruolo riconoscibili",
+      "macro_categoria": "Verifica dell'anzianità maturata",
+      "agente": "agente-verifica-anzianita-maturata",
+      "agent_id": "LTKWXTDFDL",
+      "alias_id": "NQHRJBVIVA",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "Esegui il controllo \"verifica_conteggio_giorni_preruolo\" per la pratica con id_pratica = \"{id_pratica}\".\n\n---\n\n## DATI DA RECUPERARE\n\n**Chiamata 1 — METADATA:**\n- domanda: \"Recupera tutti i metadati della pratica\"\n- Estrai: `fonte_documento_servizi` (\"certificato_servizio\" | \"dichiarazione_servizi\" | \"autocertificazione_servizi\")\n\n**Chiamata 2 — Decreto di ricostruzione della carriera:**\n- domanda: \"Dal decreto di ricostruzione della carriera, recupera: data di immissione in ruolo, anzianità preruolo giuridica ed economica (anni/mesi/giorni), anzianità preruolo ai soli fini economici (anni/mesi/giorni), e tutti i periodi di assenza interruttiva del servizio con data inizio e data fine.\"\n\n**Chiamata 3 — Documento servizi:**\nFormula la domanda in base a `fonte_documento_servizi`:\n\n- Se \"certificato_servizio\":\n  domanda: \"Dal certificato di servizio, per ogni servizio preruolo recupera SOLO: anno_scolastico, periodo_retribuito_inizio, periodo_retribuito_fine, partecipazione_scrutini. Non recuperare le assenze. Escludi qualsiasi altro campo.\"\n\n- Se \"dichiarazione_servizi\":\n  domanda: \"Dalla dichiarazione dei servizi, per ogni servizio preruolo recupera SOLO: anno_scolastico, periodo_riferimento_inizio, periodo_riferimento_fine, servizio_fino_termine_scrutini. Non recuperare le assenze. Escludi qualsiasi altro campo.\"\n\n- Se \"autocertificazione_servizi\":\n  domanda: \"Dall'autocertificazione dei servizi, per ogni servizio preruolo recupera SOLO: anno_scolastico, durata_complessiva_giorni, scrutini_esami. Non recuperare le assenze. Escludi qualsiasi altro campo.\"\n\n---\n\n## ESECUZIONE CONTROLLO\n\nDopo aver recuperato tutti i dati, chiama il tool `esegui_controllo`."
+    },
+    {
+      "controllo_id": "calcolo_anzianita_ruolo",
+      "descrizione": "Calcolo dell'anzianità in ruolo",
+      "macro_categoria": "Verifica dell'anzianità maturata",
+      "agente": "agente-verifica-anzianita-maturata",
+      "agent_id": "LTKWXTDFDL",
+      "alias_id": "NQHRJBVIVA",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "Esegui il controllo \"calcolo_anzianita_ruolo\" per la pratica con id_pratica = \"{id_pratica}\".\n\n---\n\n## DATI DA RECUPERARE\n\n**Chiamata 1 — METADATA:**\n- domanda: \"Recupera tutti i metadati della pratica\"\n- Estrai: `fonte_documento_servizi`\n\n**Chiamata 2 — Decreto di ricostruzione della carriera:**\n- domanda: \"Dal decreto di ricostruzione della carriera, recupera: data di nomina in ruolo, data di conferma in ruolo, anzianità complessiva in ruolo a fini giuridici ed economici (anni/mesi/giorni).\"\n\n**Chiamata 3 — Documento servizi (assenze):**\nFormula la domanda in base a `fonte_documento_servizi`.\n\n---\n\n## ESECUZIONE CONTROLLO\n\nDopo aver recuperato tutti i dati, chiama il tool `esegui_controllo`."
+    },
+    {
+      "controllo_id": "presenza_visto_contratto",
+      "descrizione": "Presenza del visto di regolarità del contratto",
+      "macro_categoria": "Ulteriori controlli",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} . Controllo: Presenza del visto di regolarità del contratto . Il controllo è superato se, congiuntamente al contratto a tempo indeterminato, è stato caricato anche il relativo visto"
+    },
+    {
+      "controllo_id": "presenza_firma",
+      "descrizione": "Presenza della firma",
+      "macro_categoria": "Ulteriori controlli",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Presenza della firma . Il controllo è superato se in tutti i documenti che la richiedono è presenta la firma dell'interessato e la firma del DS. Il campo \"firma dell' interessato\" va controllato nei seguenti documenti: certificato servizi e contratto a tempo indeterminato, mentre il campo \"Firma del DS\" va controllato nei seguenti documenti: Certificato di servizio, Contratto a tempo indeterminate e Decreto di superamento del periodo di formazione e prova"
+    },
+    {
+      "controllo_id": "presenza_data",
+      "descrizione": "Presenza della data",
+      "macro_categoria": "Ulteriori controlli",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Presenza della data . Il controllo è superato se è presente una data di adozione nei documenti che la richiedono (Contratto a tempo indeterminato Certificato di servizio Decreto di ricostruzione della carriera Istanza di ricostruzione della carriera)"
+    },
+    {
+      "controllo_id": "presenza_numero_protocollo",
+      "descrizione": "Presenza del numero di protocollo",
+      "macro_categoria": "Ulteriori controlli",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "prompt": "id_pratica: {id_pratica} Controllo: Presenza del numero di protocollo. Il controllo è superato se è presente un numero di protocollo nei documenti che lo richiedono (Istanza di ricostruzione della carriera Certificato di servizio). Tale numero di protocollo non deve essere il medesimo."
+    }
+  ]
+}
