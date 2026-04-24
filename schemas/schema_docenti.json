@@ -244,6 +244,62 @@
       "condizione": null,
       "tipo_invocazione": "bedrock_agent",
       "prompt": "id_pratica: {id_pratica} Controllo: Presenza del numero di protocollo. Il controllo è superato se è presente un numero di protocollo nei documenti che lo richiedono (Istanza di ricostruzione della carriera Certificato di servizio). Tale numero di protocollo non deve essere il medesimo."
+    },
+    {
+      "controllo_id": "verifica_data_adozione_decreto",
+      "descrizione": "Verifica della data di adozione del decreto",
+      "macro_categoria": "Verifica delle date",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "bloccante": false,
+      "note": "Tale controllo non è uniforme a livello nazionale. Alcune RTS accettano anche decreti adottati dopo il 28 febbraio.",
+      "riferimenti_normativi": "Legge 107/2015 art. 1, co. 209",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica della data di adozione del decreto. Il controllo è superato se la data di adozione del decreto di ricostruzione è compresa tra il primo settembre e il 28 febbraio. Controlla il documento Decreto di ricostruzione della carriera."
+    },
+    {
+      "controllo_id": "verifica_data_trasmissione_decreto",
+      "descrizione": "Verifica della data di trasmissione del decreto",
+      "macro_categoria": "Verifica delle date",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "bloccante": false,
+      "note": "Tale controllo non è uniforme a livello nazionale. La data di ricezione della PEC è reperibile dall'interfaccia di apertura della lavorazione.",
+      "riferimenti_normativi": "D. Lgs 123/2011 art. 8, co. 1",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica della data di trasmissione del decreto. Il controllo è superato se la data di ricezione della PEC è successiva alla data di adozione del decreto di ricostruzione della carriera per un periodo non superiore a un mese. Controlla i seguenti documenti: Decreto di ricostruzione della carriera. La data di ricezione della PEC è reperibile dai metadati della pratica."
+    },
+    {
+      "controllo_id": "verifica_prescrizione_conferma_nomina_ruolo",
+      "descrizione": "Verifica della prescrizione (data conferma/nomina in ruolo vs data presentazione istanza)",
+      "macro_categoria": "Verifica delle date",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "bloccante": false,
+      "note": "La prescrizione non determina di per sé un'osservazione ma determina il fatto che, in sede di applicazione, siano conteggiati solamente i servizi preruolo svolti nei 5 anni precedenti la presentazione dell'istanza di ricostruzione della carriera.",
+      "riferimenti_normativi": "Circolare del MEF del 6 ottobre 2017, n. 27 e Circolare del MEF del 2 dicembre 2021, n. 28",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica della prescrizione. Il controllo è superato qualora non siano trascorsi più di 5 anni tra la data di conferma in ruolo (per i docenti) o la data di nomina in ruolo (per il personale ATA) e la data di presentazione dell'istanza di ricostruzione della carriera. Per svolgere questo controllo devi prima verificare se il soggetto relativo alla pratica è un docente o un ATA, dopodiché, a seconda dell'esito, devi confrontare le date dei campi relativi. Documenti: Decreto di ricostruzione della carriera (data di conferma in ruolo o data di nomina in ruolo), Istanza di ricostruzione della carriera (data di presentazione dell'istanza)."
+    },
+    {
+      "controllo_id": "verifica_prescrizione_istanza_decreto",
+      "descrizione": "Verifica della prescrizione (data presentazione istanza vs data adozione decreto)",
+      "macro_categoria": "Verifica delle date",
+      "agente": "agente-controllo",
+      "agent_id": "CN875JR89B",
+      "alias_id": "XARJYKDAIT",
+      "condizione": null,
+      "tipo_invocazione": "bedrock_agent",
+      "bloccante": false,
+      "note": "La prescrizione non determina di per sé un'osservazione ma determina il fatto che, in sede di applicazione, siano conteggiati solamente i servizi preruolo svolti nei 5 anni precedenti la data di adozione del decreto di ricostruzione della carriera, qualora non siano presenti atti interruttivi della prescrizione.",
+      "riferimenti_normativi": "Circolare del MEF del 6 ottobre 2017, n. 27 e Circolare del MEF del 2 dicembre 2021, n. 28",
+      "prompt": "id_pratica: {id_pratica} Controllo: Verifica della prescrizione. Il controllo è superato qualora non siano trascorsi più di 5 anni tra la data di presentazione dell'istanza di ricostruzione della carriera e la data di adozione del decreto di ricostruzione della carriera. Questi campi vanno recuperati dai documenti: Istanza di ricostruzione della carriera (data di presentazione), Decreto di ricostruzione della carriera (data di adozione del decreto)."
     }
   ]
 }

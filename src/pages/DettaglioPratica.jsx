@@ -1101,24 +1101,20 @@ const DESC_AMM_STATUS = {
 function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }) {
   const status = deriveAmmStatus(controls);
 
-  const primari   = controls.filter(c => c.tipo !== 'secondario');
-  const secondari = controls.filter(c => c.tipo === 'secondario');
+  const CATEGORY_ORDER_SET = new Set(CATEGORY_ORDER);
+  const primari   = controls.filter(c => CATEGORY_ORDER_SET.has(c.macro_categoria || ''));
+  const secondari = controls.filter(c => !CATEGORY_ORDER_SET.has(c.macro_categoria || ''));
 
   const availableCats = new Set(primari.map(c => c.macro_categoria || 'Generale'));
   const categories = [
     ...CATEGORY_ORDER.filter(c => availableCats.has(c)),
     ...[...availableCats].filter(c => !CATEGORY_ORDER.includes(c)),
   ];
-  const [activeCategory, setActiveCategory] = useState(() => categories[0] || '');
+  const [activeCategory, setActiveCategory] = useState('');
 
-  useEffect(() => {
-    if (categories.length > 0 && !categories.includes(activeCategory)) {
-      setActiveCategory(categories[0]);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controls]);
+  const displayCategory = categories.includes(activeCategory) ? activeCategory : (categories[0] || '');
 
-  const filteredPrimari = primari.filter(c => (c.macro_categoria || 'Generale') === activeCategory);
+  const filteredPrimari = primari.filter(c => (c.macro_categoria || 'Generale') === displayCategory);
 
   const [checkedPrimari,   setCheckedPrimari]   = useState({});
   const [checkedSecondari, setCheckedSecondari] = useState({});
@@ -1254,7 +1250,7 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
             {categories.length > 0 && (
               <div style={{ display: 'flex', borderBottom: '2px solid #bbc5d7', overflowX: 'auto' }}>
                 {categories.map(cat => {
-                  const isActive = cat === activeCategory;
+                  const isActive = cat === displayCategory;
                   const catControls = primari.filter(c => (c.macro_categoria || 'Generale') === cat);
                   const catDone = catControls.length > 0 && catControls.every(c => c.convalidato);
                   return (
@@ -1359,6 +1355,9 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
                     {saving && pendingTipo === 'secondari' ? 'Salvataggio…' : secondariLabel}
                   </button>
                 </div>
+                <p style={{ fontSize: 18, fontWeight: 300, letterSpacing: 1, lineHeight: '28px', color: 'var(--text-main)', margin: 0 }}>
+                  Convalida i controlli secondari solo dopo aver completato la convalida di quelli primari.
+                </p>
                 <AmmControlliTable
                   controls={secondari}
                   checked={checkedSecondari}
