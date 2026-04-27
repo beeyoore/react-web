@@ -116,6 +116,7 @@ def evaluate_condition(condition: str | None, metadata: dict) -> bool:
     Condizioni supportate:
       null / None                          → sempre incluso
       "qualifica == secondaria"            → incluso se qualifica contiene 'secondaria' o 'media'
+      "qualifica != secondaria"            → incluso se qualifica NON contiene 'secondaria' o 'media'
       "qualifica == primaria"              → incluso se qualifica contiene 'primaria' o 'elementare'
       "qualifica == infanzia"              → incluso se qualifica contiene 'infanzia' o 'materna'
       "fonte == autocertificazione_servizi"
@@ -130,8 +131,11 @@ def evaluate_condition(condition: str | None, metadata: dict) -> bool:
     qualifica = metadata.get("qualifica_funzionale", "").lower()
     fonte     = metadata.get("fonte_documento_servizi", "").lower()
 
+    is_secondaria = any(k in qualifica for k in ("secondaria", "media", "superiore"))
+
     condition_map = {
-        "qualifica == secondaria":              any(k in qualifica for k in ("secondaria", "media", "superiore")),
+        "qualifica == secondaria":              is_secondaria,
+        "qualifica != secondaria":              not is_secondaria,
         "qualifica == primaria":                any(k in qualifica for k in ("primaria", "elementare")),
         "qualifica == infanzia":                any(k in qualifica for k in ("infanzia", "materna")),
         "fonte == autocertificazione_servizi":  fonte == "autocertificazione_servizi",
