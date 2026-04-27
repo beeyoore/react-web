@@ -37,21 +37,31 @@ bedrock_runtime = boto3.client("bedrock-runtime")
 # --- Variabili d'ambiente ---
 RISULTATI_TABLE    = os.environ["RISULTATI_TABLE"]   # tabella DynamoDB controlli
 PRATICHE_TABLE     = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMODB_TABLE", "RTS_Pratiche")  # tabella metadata pratica
-FORMATTER_MODEL_ID = os.environ.get("FORMATTER_MODEL_ID", "eu.amazon.nova-lite-v1:0")
+FORMATTER_MODEL_ID = os.environ.get("FORMATTER_MODEL_ID", "eu.amazon.nova-pro-v1:0")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def formatta_motivazione(motivazione: str) -> str:
+def formatta_motivazione(motivazione: str, dettaglio: str = "") -> str:
     """
-    Riformula la motivazione grezza in italiano fluido con markdown,
-    rimuovendo artefatti tecnici (es. [0], nomi variabili, JSON) senza
-    cambiare il contenuto. In caso di errore restituisce il testo originale.
+    Riformula la motivazione grezza in italiano fluido con markdown.
+    Se la motivazione è vaga o non cita i valori calcolati, il campo
+    dettaglio (JSON grezzo dell'agente) viene fornito come contesto
+    aggiuntivo affinché l'LLM possa citare i dati concreti.
+    In caso di errore restituisce il testo originale.
     """
     if not motivazione or motivazione == "Nessuna motivazione disponibile":
         return motivazione
+
+    contesto_dettaglio = ""
+    if dettaglio:
+        contesto_dettaglio = (
+            "\n\nDati tecnici calcolati dall'agente (usa questi valori se la motivazione "
+            "li omette o li cita in modo vago — non citare chiavi JSON, solo i valori):\n"
+            f"{dettaglio}"
+        )
 
     prompt = (
         "Sei un assistente che riformula testi tecnici in italiano chiaro e naturale.\n\n"
@@ -60,13 +70,31 @@ def formatta_motivazione(motivazione: str) -> str:
         "non tecnico, mantenendo esattamente lo stesso contenuto e significato.\n\n"
         "Regole:\n"
         "- Elimina riferimenti tecnici come [0], [1], indici di array, nomi di variabili\n"
+        "- Converti i nomi tecnici dei campi in linguaggio naturale "
+        "(es. 'nome_cognome' → 'nome e cognome', 'data_nascita' → 'data di nascita', "
+        "'codice_fiscale' → 'codice fiscale', 'data_decorrenza' → 'data di decorrenza')\n"
+        "- Se la motivazione cita dati in modo vago (es. 'il valore calcolato'), "
+        "sostituisci con il valore concreto trovato nei dati tecnici\n"
         "- Scrivi frasi complete e fluide in italiano formale\n"
-        "- Usa il markdown dove aiuta la leggibilità (grassetto per elementi importanti, "
-        "liste puntate per elenchi)\n"
-        "- Non aggiungere informazioni non presenti nel testo originale\n"
+        "- Usa il markdown dove aiuta la leggibilità (grassetto per valori importanti, "
+        "liste puntate per elenchi di documenti o discrepanze)\n"
+        "- NON inserire un titolo o intestazione all'inizio: inizia direttamente con la spiegazione\n"
+        "- NON menzionare l'esito del controllo (es. PASS, FAIL, superato, non superato): "
+        "è già mostrato separatamente nell'interfaccia\n"
+        "- NON descrivere le operazioni di normalizzazione o confronto tecnico eseguite\n"
+        "- NON spiegare che valori diversi sono stati normalizzati o considerati equivalenti "
+        "(es. non scrivere 'Felici Marco e Marco Felici sono stati normalizzati' o "
+        "'questi valori sono semanticamente equivalenti'): "
+        "l'utente sa già che varianti dello stesso nome o qualifica si riferiscono alla stessa persona\n"
+        "- Se il controllo è positivo, scrivi solo il risultato concreto (es. 'Il nome e cognome "
+        "corrisponde in tutti i documenti'); NON elencare ogni documento con il relativo valore trovato\n"
+        "- Se il controllo è negativo, elenca le discrepanze concrete senza spiegare il processo di confronto\n"
+        "- NON menzionare documenti che non sono stati controllati\n"
+        "- Non aggiungere informazioni non presenti né nella motivazione né nei dati tecnici\n"
         "- Non usare simboli tecnici o strutture JSON\n"
         "- Rispondi SOLO con il testo riformulato, senza introduzioni o spiegazioni\n\n"
-        f"Testo da riformulare:\n{motivazione}"
+        f"Motivazione da riformulare:\n{motivazione}"
+        f"{contesto_dettaglio}"
     )
 
     try:
@@ -269,7 +297,7 @@ def lambda_handler(event: dict, context) -> dict:
 
         try:
             esito, motivazione, dettaglio = estrai_campi_risposta(risultato)
-            motivazione = formatta_motivazione(motivazione)
+            motivazione = formatta_motivazione(motivazione, dettaglio)
             aggiorna_controllo_dynamo(
                 table        = table,
                 id_pratica   = id_pratica,
