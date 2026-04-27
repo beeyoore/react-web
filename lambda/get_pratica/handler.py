@@ -89,6 +89,7 @@ def build_controllo_item(item: dict) -> dict:
         "descrizione": item.get("descrizione", ""),
         "macro_categoria": item.get("macro_categoria", ""),
         "convalidato": item.get("convalidato", False),
+        "modificato": item.get("modificato", False),
         "aggiornato_at": item.get("aggiornato_at"),
     }
 
