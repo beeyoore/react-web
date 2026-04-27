@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import PreHeader from '../components/PreHeader';
 import TopHeader from '../components/TopHeader';
 import SubheaderMenu from '../components/SubheaderMenu';
@@ -787,9 +788,17 @@ function DettaglioControlloModal({ ctrl, onClose, canModify = false, onSave }) {
           <p style={{ fontSize: 16, fontWeight: 400, letterSpacing: 1, color: 'var(--text-main)', margin: 0 }}>
             Motivazione dell&apos;esito
           </p>
-          <p style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)', margin: 0 }}>
-            {ctrl.motivazione || '—'}
-          </p>
+          <div style={{ fontSize: 16, fontWeight: 300, letterSpacing: 1, lineHeight: '24px', color: 'var(--text-main)' }}>
+            {ctrl.motivazione
+              ? <ReactMarkdown components={{
+                  p:      ({ children }) => <p style={{ margin: '0 0 8px 0' }}>{children}</p>,
+                  ul:     ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: 20 }}>{children}</ul>,
+                  ol:     ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: 20 }}>{children}</ol>,
+                  li:     ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                  strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                }}>{ctrl.motivazione}</ReactMarkdown>
+              : '—'}
+          </div>
         </div>
 
         {/* Edit form */}

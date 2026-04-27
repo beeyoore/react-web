@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 
 import boto3
@@ -34,7 +35,9 @@ bedrock_agent_runtime = boto3.client("bedrock-agent-runtime")
 lambda_client         = boto3.client("lambda")
 
 # --- Variabili d'ambiente ---
-AWS_REGION = os.environ.get("AWS_REGION", "eu-central-1")
+AWS_REGION       = os.environ.get("AWS_REGION", "eu-central-1")
+BEDROCK_MAX_RETRIES = int(os.environ.get("BEDROCK_MAX_RETRIES", "5"))
+BEDROCK_RETRY_DELAY_S = float(os.environ.get("BEDROCK_RETRY_DELAY_S", "3"))
 
 
 # ---------------------------------------------------------------------------
@@ -99,18 +102,93 @@ def invoke_bedrock_agent(agent_id: str, alias_id: str, prompt: str) -> str:
             f"(nessun chunk ricevuto nello stream)"
         )
 
-    logger.info(f"Risposta Bedrock ricevuta ({len(completion_text)} chars)")
+    logger.info(f"Risposta Bedrock ricevuta ({len(completion_text)} chars): {completion_text[:500]!r}")
     return completion_text
+
+
+_CTRL_ESCAPES = {'\n': '\\n', '\r': '\\r', '\t': '\\t'}
+
+def _sanitize_json_string_values(s: str) -> str:
+    """Escape unescaped control chars (newline, CR, tab) inside JSON string values."""
+    result = []
+    in_string = False
+    escape_next = False
+    for ch in s:
+        if escape_next:
+            escape_next = False
+            result.append(ch)
+            continue
+        if ch == '\\' and in_string:
+            escape_next = True
+            result.append(ch)
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string and ch in _CTRL_ESCAPES:
+            result.append(_CTRL_ESCAPES[ch])
+            continue
+        result.append(ch)
+    return ''.join(result)
+
+
+def _extract_first_json_object(testo: str) -> dict | None:
+    """
+    Trova il primo oggetto JSON valido nel testo usando scan a parentesi bilanciate.
+    Gestisce stringhe con caratteri di escape; robusto rispetto a testo prima/dopo il JSON.
+    """
+    idx = 0
+    while True:
+        start = testo.find("{", idx)
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escape_next = False
+        end = start
+        for i, ch in enumerate(testo[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        else:
+            # Stream terminato senza chiudere le parentesi
+            return None
+
+        candidate = testo[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            try:
+                return json.loads(_sanitize_json_string_values(candidate))
+            except (json.JSONDecodeError, ValueError):
+                idx = start + 1  # prova dal prossimo '{'
 
 
 def parse_risposta_agente(testo: str) -> dict:
     """
-    Tenta di estrarre un JSON valido dalla risposta testuale dell'agente.
+    Estrae un JSON valido dalla risposta testuale dell'agente.
 
     Strategia:
-      1. Parse diretto (se la risposta è già JSON puro)
-      2. Estrazione dal primo blocco ```json ... ``` trovato
-      3. Ricerca del primo oggetto JSON { ... } nel testo
+      1. Parse diretto (risposta già JSON puro)
+      2. Blocco ```json ... ```
+      3. Scan a parentesi bilanciate — trova il primo oggetto JSON valido nel testo
+         (robusto rispetto a testo prima/dopo il JSON, array discordanze, ecc.)
       4. Fallback: restituisce la risposta come campo 'testo_grezzo'
     """
     testo = testo.strip()
@@ -129,21 +207,68 @@ def parse_risposta_agente(testo: str) -> dict:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # 3. Primo oggetto JSON nel testo
-    match = re.search(r"\{.*\}", testo, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except (json.JSONDecodeError, ValueError):
-            pass
+    # 3. Scan a parentesi bilanciate
+    result = _extract_first_json_object(testo)
+    if result is not None:
+        return result
 
     # 4. Fallback
-    logger.warning("Impossibile parsare la risposta come JSON — restituito testo grezzo")
+    logger.warning(f"Impossibile parsare la risposta come JSON — restituito testo grezzo : {testo}")
     return {
-        "esito":       "NON_VERIFICABILE",
-        "motivazione": "Risposta dell'agente non in formato JSON atteso",
+        "esito":        "NON_VERIFICABILE",
+        "motivazione":  "Risposta dell'agente non in formato JSON atteso",
         "testo_grezzo": testo,
     }
+
+
+# ---------------------------------------------------------------------------
+# Retry — invocazione Bedrock con backoff esponenziale
+# ---------------------------------------------------------------------------
+
+def invoke_bedrock_agent_with_retry(agent_id: str, alias_id: str, prompt: str) -> dict:
+    """
+    Chiama invoke_bedrock_agent + parse_risposta_agente con retry.
+
+    Ritenta se:
+      - invoke_bedrock_agent solleva RuntimeError (risposta vuota, errore stream)
+      - parse_risposta_agente restituisce un fallback con 'testo_grezzo' (risposta non JSON)
+
+    Backoff: BEDROCK_RETRY_DELAY_S * 2^attempt (es. 3s, 6s con MAX_RETRIES=2).
+    Dopo tutti i tentativi, propaga l'ultima eccezione o restituisce il fallback.
+    """
+    last_exc = None
+    last_risposta = None
+
+    for attempt in range(BEDROCK_MAX_RETRIES + 1):
+        if attempt > 0:
+            delay = BEDROCK_RETRY_DELAY_S * (2 ** (attempt - 1))
+            logger.warning(
+                f"Retry {attempt}/{BEDROCK_MAX_RETRIES} per agent={agent_id} "
+                f"(attesa {delay:.1f}s)"
+            )
+            time.sleep(delay)
+
+        try:
+            testo = invoke_bedrock_agent(agent_id, alias_id, prompt)
+        except RuntimeError as e:
+            last_exc = e
+            logger.warning(f"Tentativo {attempt + 1} fallito: {e}")
+            continue
+
+        risposta = parse_risposta_agente(testo)
+
+        # Parse riuscito — risposta JSON valida dall'agente
+        if "testo_grezzo" not in risposta:
+            return risposta
+
+        # Parse fallito — registra e riprova
+        last_risposta = risposta
+        logger.warning(f"Tentativo {attempt + 1}: risposta non parsabile come JSON, retry.")
+
+    # Tutti i tentativi esauriti
+    if last_exc is not None:
+        raise last_exc
+    return last_risposta
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +364,7 @@ def lambda_handler(event: dict, context) -> dict:
                     f"agent_id={agent_id}, alias_id={alias_id}, prompt={'presente' if prompt else 'MANCANTE'}"
                 )
 
-            testo_risposta = invoke_bedrock_agent(agent_id, alias_id, prompt)
-            risposta       = parse_risposta_agente(testo_risposta)
+            risposta = invoke_bedrock_agent_with_retry(agent_id, alias_id, prompt)
 
         elif tipo == "lambda":
             function_name = event.get("lambda_function_name")
@@ -264,7 +388,7 @@ def lambda_handler(event: dict, context) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"Errore nel wrapper per controllo '{controllo_id}': {e}")
+        logger.error(f"Errore nel wrapper per controllo '{controllo_id}': {e}", exc_info=True)
         # Non solleva l'eccezione — restituisce esito NON_VERIFICABILE
         # così il Map State non si blocca e gli altri controlli continuano
         return {

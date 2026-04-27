@@ -31,16 +31,57 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # --- Client AWS ---
-dynamodb = boto3.resource("dynamodb")
+dynamodb        = boto3.resource("dynamodb")
+bedrock_runtime = boto3.client("bedrock-runtime")
 
 # --- Variabili d'ambiente ---
-RISULTATI_TABLE = os.environ["RISULTATI_TABLE"]   # tabella DynamoDB controlli
-PRATICHE_TABLE  = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMODB_TABLE", "RTS_Pratiche")  # tabella metadata pratica
+RISULTATI_TABLE    = os.environ["RISULTATI_TABLE"]   # tabella DynamoDB controlli
+PRATICHE_TABLE     = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMODB_TABLE", "RTS_Pratiche")  # tabella metadata pratica
+FORMATTER_MODEL_ID = os.environ.get("FORMATTER_MODEL_ID", "eu.amazon.nova-lite-v1:0")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def formatta_motivazione(motivazione: str) -> str:
+    """
+    Riformula la motivazione grezza in italiano fluido con markdown,
+    rimuovendo artefatti tecnici (es. [0], nomi variabili, JSON) senza
+    cambiare il contenuto. In caso di errore restituisce il testo originale.
+    """
+    if not motivazione or motivazione == "Nessuna motivazione disponibile":
+        return motivazione
+
+    prompt = (
+        "Sei un assistente che riformula testi tecnici in italiano chiaro e naturale.\n\n"
+        "Ricevi la spiegazione di un controllo documentale eseguito su una pratica "
+        "amministrativa. Riformula il testo in modo fluido e comprensibile per un utente "
+        "non tecnico, mantenendo esattamente lo stesso contenuto e significato.\n\n"
+        "Regole:\n"
+        "- Elimina riferimenti tecnici come [0], [1], indici di array, nomi di variabili\n"
+        "- Scrivi frasi complete e fluide in italiano formale\n"
+        "- Usa il markdown dove aiuta la leggibilità (grassetto per elementi importanti, "
+        "liste puntate per elenchi)\n"
+        "- Non aggiungere informazioni non presenti nel testo originale\n"
+        "- Non usare simboli tecnici o strutture JSON\n"
+        "- Rispondi SOLO con il testo riformulato, senza introduzioni o spiegazioni\n\n"
+        f"Testo da riformulare:\n{motivazione}"
+    )
+
+    try:
+        response = bedrock_runtime.converse(
+            modelId=FORMATTER_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.1},
+        )
+        testo = response["output"]["message"]["content"][0]["text"].strip()
+        logger.info(f"Motivazione formattata ({len(testo)} chars)")
+        return testo
+    except Exception as e:
+        logger.warning(f"Errore formattazione motivazione: {e} — uso testo originale")
+        return motivazione
+
 
 def normalizza_esito(esito_raw: str | None) -> str:
     """
@@ -228,6 +269,7 @@ def lambda_handler(event: dict, context) -> dict:
 
         try:
             esito, motivazione, dettaglio = estrai_campi_risposta(risultato)
+            motivazione = formatta_motivazione(motivazione)
             aggiorna_controllo_dynamo(
                 table        = table,
                 id_pratica   = id_pratica,

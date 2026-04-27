@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
@@ -67,18 +68,41 @@ def get_pratica_metadata(id_pratica: str) -> dict:
     """
     Legge i metadati della pratica da DynamoDB.
     Campi usati per le condizioni:
-      - qualifica_funzionale
-      - fonte_documento_servizi
+      - qualifica_funzionale  → letta dal documento con SK che inizia per DOCUMENTO#decreto_ricostruzione
+      - fonte_documento_servizi → letta da SK=METADATA
     """
     table = dynamodb.Table(PRATICHE_TABLE)
+    pk = f"PRATICA#{id_pratica}"
+
+    # 1. METADATA — fonte_documento_servizi e altri campi base
     try:
-        response = table.get_item(Key={"PK": f"PRATICA#{id_pratica}", "SK": "METADATA"})
+        response = table.get_item(Key={"PK": pk, "SK": "METADATA"})
     except ClientError as e:
         raise RuntimeError(f"Errore DynamoDB lettura pratica '{id_pratica}': {e}")
 
     item = response.get("Item")
     if not item:
         raise ValueError(f"Pratica non trovata in DynamoDB: '{id_pratica}'")
+
+    # 2. Documento decreto_ricostruzione — qualifica_funzionale
+    try:
+        decreto_resp = table.query(
+            KeyConditionExpression=Key("PK").eq(pk) & Key("SK").begins_with("DOCUMENTO#decreto_ricostruzione"),
+            Limit=1,
+        )
+        decreti = decreto_resp.get("Items", [])
+        if decreti:
+            dati_prof = decreti[0].get("dati_professionali") or {}
+            qualifica_da_decreto = dati_prof.get("qualifica_funzionale")
+            if qualifica_da_decreto is not None:
+                item["qualifica_funzionale"] = qualifica_da_decreto
+                logger.info(f"qualifica_funzionale da decreto: '{qualifica_da_decreto}'")
+            else:
+                logger.warning(f"Documento decreto_ricostruzione trovato ma 'qualifica_funzionale' assente — uso METADATA")
+        else:
+            logger.warning(f"Nessun documento DOCUMENTO#decreto_ricostruzione per pratica '{id_pratica}' — uso METADATA")
+    except ClientError as e:
+        logger.warning(f"Errore lettura decreto_ricostruzione per '{id_pratica}': {e} — uso METADATA")
 
     logger.info(f"Metadati pratica '{id_pratica}': qualifica='{item.get('qualifica_funzionale')}' "
                 f"fonte='{item.get('fonte_documento_servizi')}'")
