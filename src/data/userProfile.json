@@ -2,5 +2,7 @@
   "id": "111",
   "nome": "Marco",
   "cognome": "Felici",
-  "profilo": "controllo"
+  "profilo": "controlli",
+  "genere": "m",
+  "first_login": "2026-04-15"
 }

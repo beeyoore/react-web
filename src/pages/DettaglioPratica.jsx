@@ -680,14 +680,15 @@ function ConvalidaSuccessModal({ remaining, onHome, onRimani, tipoLabel = 'contr
             : defaultMsg
           }
         </p>
-        <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 8, width: '100%', justifyContent: 'center' }}>
           {!isParziale && (
             <button
               onClick={onHome}
               style={{
-                flex: 1, height: 44, borderRadius: 8, border: '2px solid var(--blue-main)',
+                flex: 1, minWidth: 0, minHeight: 44, padding: '10px 16px', borderRadius: 8, border: '2px solid var(--blue-main)',
                 background: 'white', cursor: 'pointer', fontFamily: 'var(--font)',
-                fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'var(--blue-main)',
+                fontSize: 16, fontWeight: 500, letterSpacing: 1, lineHeight: '22px', color: 'var(--blue-main)',
+                whiteSpace: 'normal', textAlign: 'center',
               }}
             >
               Torna alla Homepage
@@ -696,9 +697,10 @@ function ConvalidaSuccessModal({ remaining, onHome, onRimani, tipoLabel = 'contr
           <button
             onClick={onRimani}
             style={{
-              flex: isParziale ? 0 : 1, height: 44, padding: '0 24px', borderRadius: 8, border: 'none',
+              flex: isParziale ? 0 : 1, minWidth: 0, minHeight: 44, padding: '10px 24px', borderRadius: 8, border: 'none',
               background: 'var(--blue-main)', cursor: 'pointer', fontFamily: 'var(--font)',
-              fontSize: 16, fontWeight: 500, letterSpacing: 1, color: 'white',
+              fontSize: 16, fontWeight: 500, letterSpacing: 1, lineHeight: '22px', color: 'white',
+              whiteSpace: 'normal', textAlign: 'center',
             }}
           >
             {isParziale ? 'Chiudi' : 'Rimani sulla pratica'}

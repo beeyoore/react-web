@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import userProfile from './data/userProfile.json';
+import { getDaysSinceDate, getHomepageVariant } from './utils/dateUtils';
 import Homepage from './pages/Homepage';
 
 // Flusso "Operatore Controlli"
@@ -9,12 +10,20 @@ import Scr13AperturaNuovaPratica from './pages/Scr13AperturaNuovaPratica';
 import DettaglioPratica from './pages/DettaglioPratica';
 
 // Flusso "Stipendi"
+import HomepageStipendi from './pages/stipendi/Homepage';
 import StipAperturaNuovaPratica from './pages/stipendi/AperturaNuovaPratica';
 import StipCaricamentoDocumenti from './pages/stipendi/CaricamentoDocumenti';
 import StipRiepilogoPratica from './pages/stipendi/RiepilogoPratica';
 
 const userName = `${userProfile.nome.charAt(0)}${userProfile.cognome.charAt(0)}`;
+const displayName = userProfile.nome || userName;
 const profilo = (userProfile.profilo || '').toLowerCase();
+const genderValue = String(userProfile.genere || userProfile.sesso || userProfile.gender || '').toLowerCase();
+const salutation = ['f', 'femmina', 'female'].includes(genderValue) ? 'Benvenuta' : 'Benvenuto';
+
+// Determine homepage variant based on days since first login
+const daysSinceFirstLogin = getDaysSinceDate(userProfile.first_login);
+const homepageVariant = getHomepageVariant(daysSinceFirstLogin);
 
 export default function App() {
   const [step, setStep] = useState(0);
@@ -22,13 +31,29 @@ export default function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [idPratica, setIdPratica] = useState(null);
 
-  // Homepage
-  if (step === 0) return (
-    <Homepage
-      userName={userName}
-      onNuovaPratica={() => setStep(1)}
-    />
-  );
+  // Homepage - Route to correct variant based on profilo
+  if (step === 0) {
+    if (profilo === 'stipendi') {
+      return (
+        <HomepageStipendi
+          variant={homepageVariant}
+          userName={userName}
+          displayName={displayName}
+          salutation={salutation}
+          onNuovaPratica={() => setStep(1)}
+        />
+      );
+    }
+    return (
+      <Homepage
+        variant={homepageVariant}
+        userName={userName}
+        displayName={displayName}
+        salutation={salutation}
+        onNuovaPratica={() => setStep(1)}
+      />
+    );
+  }
 
   // ── Flusso Stipendi ──────────────────────────────────────────
   if (profilo === 'stipendi') {

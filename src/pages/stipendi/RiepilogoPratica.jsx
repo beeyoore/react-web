@@ -94,7 +94,7 @@ function SuccessModal({ onHome, onDetail }) {
         background: 'var(--white)',
         borderRadius: 12,
         padding: '40px 48px',
-        width: 727,
+        width: 'min(727px, calc(100vw - 32px))',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
         boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
       }}>
@@ -116,16 +116,17 @@ function SuccessModal({ onHome, onDetail }) {
           in Homepage appena completati.
         </p>
 
-        <div style={{ display: 'flex', gap: 16, marginTop: 8, width: '100%' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 8, width: '100%' }}>
           <button
             onClick={onHome}
             style={{
-              flex: 1, height: 48, padding: '12px 16px',
+              flex: 1, minWidth: 0, minHeight: 48, padding: '12px 16px',
               border: '1px solid var(--blue-main)',
               borderRadius: 'var(--radius-btn)',
               background: 'var(--white)', cursor: 'pointer',
               fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
-              letterSpacing: 1, color: 'var(--blue-main)',
+              letterSpacing: 1, lineHeight: '24px', color: 'var(--blue-main)',
+              whiteSpace: 'normal', textAlign: 'center',
             }}
           >
             Torna alla Homepage
@@ -133,12 +134,13 @@ function SuccessModal({ onHome, onDetail }) {
           <button
             onClick={onDetail}
             style={{
-              flex: 1, height: 48, padding: '12px 16px',
+              flex: 1, minWidth: 0, minHeight: 48, padding: '12px 16px',
               border: 'none',
               borderRadius: 'var(--radius-btn)',
               background: 'var(--blue-main)', cursor: 'pointer',
               fontFamily: 'var(--font)', fontSize: 18, fontWeight: 500,
-              letterSpacing: 1, color: 'var(--white)',
+              letterSpacing: 1, lineHeight: '24px', color: 'var(--white)',
+              whiteSpace: 'normal', textAlign: 'center',
             }}
           >
             Vai al dettaglio pratica
