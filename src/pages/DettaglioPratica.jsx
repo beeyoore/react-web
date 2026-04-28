@@ -270,16 +270,16 @@ const TABS = [
   { label: 'Controlli amministrativo-contabili', Icon: IconSliders },
 ];
 
-function TabMenu({ activeTab, onTabChange }) {
+function TabMenu({ activeSection, onScrollTo }) {
   return (
     <nav style={{
       width: 323, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8,
       alignSelf: 'flex-start', position: 'sticky', top: 160,
     }}>
       {TABS.map(({ label, Icon }) => {
-        const isActive = label === activeTab;
+        const isActive = label === activeSection;
         return (
-          <button key={label} onClick={() => onTabChange(label)} style={{
+          <button key={label} onClick={() => onScrollTo(label)} style={{
             display: 'flex', alignItems: 'center', gap: 8, width: '100%',
             textAlign: 'left', padding: '12px 16px', border: 'none', borderRadius: 8,
             background: isActive ? '#f5f9ff' : 'transparent', cursor: 'pointer',
@@ -1401,9 +1401,10 @@ function ControlliAmmCard({ controls, idPratica, onRefresh, onHome, prelStatus }
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPratica, onHome, userName }) {
-  const [activeTab, setActiveTab] = useState(TABS[0].label);
+  const [activeSection, setActiveSection] = useState(TABS[0].label);
   const [controlli, setControlli] = useState({ preliminari: [], amm_contabili: [] });
   const intervalRef = useRef(null);
+  const sectionRefs = useRef({});
 
   function stopPolling() {
     if (intervalRef.current) {
@@ -1437,6 +1438,28 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
     intervalRef.current = setInterval(fetchControlli, POLL_INTERVAL);
     return stopPolling;
   }, [idPratica]);
+
+  // Scroll spy: aggiorna la voce attiva nel menu in base alla sezione visibile
+  useEffect(() => {
+    const observers = TABS.map(({ label }) => {
+      const el = sectionRefs.current[label];
+      if (!el) return null;
+      const obs = new IntersectionObserver(
+        ([entry]) => { if (entry.isIntersecting) setActiveSection(label); },
+        // rootMargin negativo compensa l'header sticky (~160px) + un po' di buffer
+        { threshold: 0, rootMargin: '-170px 0px -40% 0px' },
+      );
+      obs.observe(el);
+      return obs;
+    });
+    return () => observers.forEach(o => o?.disconnect());
+  }, []);
+
+  function scrollToSection(label) {
+    setActiveSection(label);
+    const el = sectionRefs.current[label];
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
   const prelStatus = deriveControlliStatus(controlli.preliminari);
 
@@ -1474,21 +1497,33 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
         </div>
 
         <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-          <TabMenu activeTab={activeTab} onTabChange={setActiveTab} />
+          <TabMenu activeSection={activeSection} onScrollTo={scrollToSection} />
 
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 40 }}>
-            {activeTab === 'Informazioni sulla pratica' && (
+            {/* Tutte le sezioni sempre renderizzate — il menu scorre fino all'ancora */}
+            <section
+              ref={el => { sectionRefs.current['Informazioni sulla pratica'] = el; }}
+              style={{ scrollMarginTop: 170 }}
+            >
               <InfoPraticaCard praticeData={praticeData} uploadedFiles={uploadedFiles} />
-            )}
-            {activeTab === 'Controlli preliminari' && (
+            </section>
+
+            <section
+              ref={el => { sectionRefs.current['Controlli preliminari'] = el; }}
+              style={{ scrollMarginTop: 170 }}
+            >
               <ControlliPreliminaryCard
                 controls={controlli.preliminari}
                 idPratica={idPratica}
                 onRefresh={fetchControlli}
                 onHome={onHome}
               />
-            )}
-            {activeTab === 'Controlli amministrativo-contabili' && (
+            </section>
+
+            <section
+              ref={el => { sectionRefs.current['Controlli amministrativo-contabili'] = el; }}
+              style={{ scrollMarginTop: 170 }}
+            >
               <ControlliAmmCard
                 controls={controlli.amm_contabili}
                 idPratica={idPratica}
@@ -1496,7 +1531,7 @@ export default function DettaglioPratica({ praticeData, uploadedFiles = [], idPr
                 onHome={onHome}
                 prelStatus={prelStatus}
               />
-            )}
+            </section>
           </div>
         </div>
       </main>
