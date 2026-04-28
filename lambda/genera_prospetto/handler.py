@@ -62,11 +62,13 @@ Env vars:
   PRESIGNED_URL_EXPIRY – secondi validità URL          (default: 3600)
 """
 
+import calendar
 import io
 import json
 import logging
 import os
 import re
+from datetime import date, datetime
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -95,49 +97,207 @@ CORS_HEADERS = {
 }
 
 # ---------------------------------------------------------------------------
-# Mapping qualifica funzionale → codice NoiPA
+# Calcolo data di scadenza stipendi
 # ---------------------------------------------------------------------------
 
-QUALIFICA_NOIIPA_MAP = {
-    # Docenti
-    "docente scuola materna": "KA05",
-    "docente scuola elementare": "KA05",
-    "docente scuola infanzia": "KA05",
-    "docente primaria": "KA05",
-    "docente scuola media": "KA07",
-    "docente scuola secondaria di i grado": "KA07",
-    "docente diplomato istituti secondari": "KA06",
-    "docente diplomato secondaria ii grado": "KA06",
-    "docente laureato istituti secondari": "KA08",
-    "docente laureato secondaria ii grado": "KA08",
-    "docente istituti secondari ii grado": "KA06",
-    # ATA
-    "collaboratore scolastico": "KA41",
-    "collaboratori scolastici": "KA41",
-    "operatore scolastico": "KA42",
-    "assistente amministrativo": "KA43",
-    "assistente tecnico": "KA43",
-    "direttore dei servizi generali e amministrativi": "KA12",
-    "dsga": "KA12",
-    # Capi istituto
-    "capo di istituto": "KA11",
-    "dirigente scolastico": "KA12",
-    # AFAM
-    "afam operatore": "KC41",
-    "afam assistente": "KC43",
-    "afam funzionario": "KC17",
-    "afam elevata qualificazione": "KC16",
+# Anni totali di servizio (preruolo + in-ruolo) necessari per entrare in ogni classe.
+# La chiave è la classe CORRENTE; il valore è la soglia anni per la classe SUCCESSIVA.
+SCATTI_STIPENDIALI: dict[str, int | None] = {
+    "00": 9,
+    "09": 15,
+    "15": 21,
+    "21": 28,
+    "28": 35,
+    "35": None,  # ultima classe — nessuna scadenza
 }
 
 
+def _parse_date_it(s: str | None) -> date | None:
+    if not s:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s.strip(), fmt).date()
+        except (ValueError, AttributeError):
+            continue
+    return None
+
+
+def _add_period(d: date, anni: int, mesi: int, giorni: int) -> date:
+    """Somma (o sottrae se negativi) anni/mesi/giorni a una data."""
+    y = d.year + anni
+    m = d.month + mesi
+    while m > 12:
+        m -= 12
+        y += 1
+    while m < 1:
+        m += 12
+        y -= 1
+    # Clamp day al massimo del mese
+    max_day = calendar.monthrange(y, m)[1]
+    day = min(d.day + giorni, max_day)
+    result = date(y, m, day)
+    # Gestisci giorni residui dopo il clamp
+    remaining = d.day + giorni - day
+    if remaining > 0:
+        result = _add_period(result, 0, 0, remaining)
+    return result
+
+
+def _next_1_settembre(d: date) -> date:
+    """Restituisce il 01/09 in corso o del prossimo anno rispetto a d."""
+    candidate = date(d.year, 9, 1)
+    return candidate if candidate >= d else date(d.year + 1, 9, 1)
+
+
+_CLASSI_ORDINE = ["00", "09", "15", "21", "28", "35"]
+# Soglia anni totali di servizio per USCIRE da ogni classe (entrare nella successiva)
+_SOGLIE_ANNI = [9, 15, 21, 28, 35, None]
+
+
+def _effective_start(data_decorrenza_economica: str | None, preruolo: dict | None) -> date | None:
+    assunzione = _parse_date_it(data_decorrenza_economica)
+    if not assunzione:
+        return None
+    p = preruolo or {}
+    return _add_period(assunzione, -int(p.get("anni") or 0), -int(p.get("mesi") or 0), -int(p.get("giorni") or 0))
+
+
+def calcola_righe_variazione_stipendi(
+    data_decorrenza_economica: str | None,
+    data_decorrenza_giuridica: str | None,
+    preruolo_soli_fini_economici: dict | None,
+    classe_stipendiale: str | None,
+    qualifica_noiipa: str,
+) -> list[dict]:
+    """
+    Genera una riga per ogni classe da "00" fino alla classe corrente.
+
+    Regole scadenza per ogni riga i:
+      target_i  = effective_start + _SOGLIE_ANNI[i]   (anni totali per uscire dalla classe i)
+      scadenza_i = _next_1_settembre(target_i)
+      Se scadenza_i <= data_decorrenza_economica → scadenza_i = data_decorrenza_economica
+        (la transizione è già avvenuta al momento dell'assunzione in ruolo)
+
+    Prox variazione automatica:
+      "No" per tutte le righe precedenti l'ultima, "Sì" per l'ultima.
+
+    Restituisce lista di dict con chiavi:
+      dec_econ, dec_giur, scadenza, qualifica, classe, prox_var
+    """
+    classe_norm = str(classe_stipendiale or "").strip().zfill(2)
+    if classe_norm not in _CLASSI_ORDINE:
+        classe_norm = "00"
+
+    idx_corrente = _CLASSI_ORDINE.index(classe_norm)
+    assunzione = _parse_date_it(data_decorrenza_economica)
+    eff_start = _effective_start(data_decorrenza_economica, preruolo_soli_fini_economici)
+    dec_econ = data_decorrenza_economica or ""
+    dec_giur = data_decorrenza_giuridica or ""
+
+    rows = []
+    for i in range(idx_corrente + 1):
+        soglia = _SOGLIE_ANNI[i]
+        if eff_start and soglia:
+            target = _add_period(eff_start, soglia, 0, 0)
+            scadenza_d = _next_1_settembre(target)
+            # Se la transizione è già avvenuta prima/uguale all'assunzione → usa data assunzione
+            if assunzione and scadenza_d <= assunzione:
+                scadenza_str = assunzione.strftime("%d/%m/%Y")
+            else:
+                scadenza_str = scadenza_d.strftime("%d/%m/%Y")
+        else:
+            scadenza_str = ""
+
+        rows.append({
+            "dec_econ":   dec_econ,
+            "dec_giur":   dec_giur,
+            "scadenza":   scadenza_str,
+            "qualifica":  qualifica_noiipa,
+            "classe":     _CLASSI_ORDINE[i],
+            "prox_var":   "Sì" if i == idx_corrente else "No",
+        })
+
+    return rows
+
+
+def calcola_data_scadenza_stipendi(
+    data_decorrenza_economica: str | None,
+    preruolo_soli_fini_economici: dict | None,
+    classe_stipendiale: str | None,
+) -> str:
+    """Scadenza della classe corrente (ultima riga della variazione stipendi)."""
+    classe_norm = str(classe_stipendiale or "").strip().zfill(2)
+    soglia_anni = SCATTI_STIPENDIALI.get(classe_norm)
+    if soglia_anni is None:
+        return ""
+
+    eff_start = _effective_start(data_decorrenza_economica, preruolo_soli_fini_economici)
+    if not eff_start:
+        return ""
+
+    target = _add_period(eff_start, soglia_anni, 0, 0)
+    return _next_1_settembre(target).strftime("%d/%m/%Y")
+
+
+# ---------------------------------------------------------------------------
+# Mapping qualifica funzionale → codice NoiPA
+# ---------------------------------------------------------------------------
+#
+# Ogni entry: (keywords_da_cercare_nel_testo, codice, descrizione_ufficiale_noiipa)
+# Le keyword vengono cercate nell'ordine → metti le più specifiche prima.
+# Il match avviene se TUTTE le keyword di un gruppo sono presenti nel testo normalizzato.
+#
+_NOIIPA_RULES: list[tuple[list[str], str, str]] = [
+    # ---- AFAM (prima dei generici "assistente" / "funzionario") ----
+    (["afam", "elevata qualificazione", "ex kc19"],  "KC26", "AFAM Elevata qualificazione ex KC19"),
+    (["afam", "elevata qualificazione"],             "KC16", "AFAM Elevata Qualificazione"),
+    (["afam", "funzionario"],                        "KC17", "AFAM Funzionario"),
+    (["afam", "assistente"],                         "KC43", "AFAM - Assistente"),
+    (["afam", "operatore"],                          "KC41", "AFAM - Operatore"),
+    # ---- Docenti (più specifici prima) ----
+    (["diplomato", "secondari", "ii grado"],         "KA06", "Docente diplomato istituti secondari II grado"),
+    (["diplomato", "superior"],                      "KA06", "Docente diplomato istituti secondari II grado"),
+    (["laureato", "secondari", "ii grado"],          "KA08", "Docente laureato istituti secondari II grado"),
+    (["laureato", "superior"],                       "KA08", "Docente laureato istituti secondari II grado"),
+    (["secondari", "ii grado"],                      "KA06", "Docente diplomato istituti secondari II grado"),
+    (["superior"],                                   "KA06", "Docente diplomato istituti secondari II grado"),
+    (["materna"],                                    "KA05", "Docente scuola materna ed elementare"),
+    (["infanzia"],                                   "KA05", "Docente scuola materna ed elementare"),
+    (["elementar"],                                  "KA05", "Docente scuola materna ed elementare"),
+    (["primaria"],                                   "KA05", "Docente scuola materna ed elementare"),
+    (["media"],                                      "KA07", "Docente scuola media"),
+    (["secondaria", "i grado"],                      "KA07", "Docente scuola media"),
+    (["secondari"],                                  "KA06", "Docente diplomato istituti secondari II grado"),
+    # ---- Capi istituto ----
+    (["capo", "istituto"],                           "KA11", "Capi di istituto che non hanno acquisito la qualifica di dirigenti scolastici"),
+    # ---- ATA ----
+    (["collaborator"],                               "KA41", "Collaboratori"),
+    (["operatore"],                                  "KA42", "Operatori"),
+    (["assistente"],                                 "KA43", "Assistenti"),
+    (["dsga"],                                       "KA12", "Funzionari ed elevata qualificazione"),
+    (["direttore", "servizi", "generali"],           "KA12", "Funzionari ed elevata qualificazione"),
+    # ---- Funzionari (KA12 prima di KA13: "funzionari" plurale → KA12) ----
+    (["funzionari", "elevata"],                      "KA12", "Funzionari ed elevata qualificazione"),
+    (["funzionario"],                                "KA12", "Funzionari ed elevata qualificazione"),
+    (["dirigente"],                                  "KA12", "Funzionari ed elevata qualificazione"),
+    (["elevata qualificazione"],                     "KA13", "Funz. elevata qualificazione"),
+]
+
+
 def _noiipa_qualifica(qualifica: str | None) -> str:
+    """
+    Mappa il testo libero della qualifica funzionale al codice NoiPA ufficiale.
+    Restituisce "CODICE - Descrizione ufficiale NoiPA".
+    Se nessun match, restituisce il testo originale.
+    """
     if not qualifica:
         return ""
     lower = qualifica.lower().strip()
-    for pattern, code in QUALIFICA_NOIIPA_MAP.items():
-        if pattern in lower:
-            return f"{code} - {qualifica}"
-    return qualifica
+    for keywords, code, _ in _NOIIPA_RULES:
+        if all(kw in lower for kw in keywords):
+            return code
+    return qualifica  # nessun match: testo grezzo dal decreto
 
 
 # ---------------------------------------------------------------------------
@@ -260,14 +420,6 @@ def _format_anzianita(val) -> str:
     return str(val) if val else ""
 
 
-def _prox_variazione_automatica_stipendi(classe_stipendiale: str | None) -> str:
-    """
-    Classe "00" → una sola variazione → flag "Sì".
-    Classe diversa → questa riga è quella target → flag "Sì".
-    (Le righe precedenti non sono nel template e vanno aggiunte manualmente.)
-    """
-    return "Sì"
-
 
 def _soggetto_a_prescrizione(metadata: dict) -> str:
     prescrizione = metadata.get("prescrizione", "No")
@@ -340,12 +492,24 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         or _get(decreto, "classe_stipendiale")
         or ""
     )
-    data_scadenza_stipendi = (
-        _get(art2, "data_scadenza")
-        or _get(prof, "data_scadenza_stipendi")
-        or _get(prof, "data_scadenza")
-        or ""
+
+    # Preruolo riconosciuto ai soli fini economici (dalla tabella Art. 2 del decreto)
+    preruolo_soli_fini_economici = (
+        _get(art2, "periodo_totale_soli_fini_economici")
+        or _get(decreto, "preruolo_soli_fini_economici")
+        or _get(decreto, "periodo_totale_soli_fini_economici")
+        or {}
     )
+    if not isinstance(preruolo_soli_fini_economici, dict):
+        preruolo_soli_fini_economici = {}
+
+    # Data scadenza stipendi: calcolata sulla base di decorrenza economica + preruolo
+    # Fallback al valore estratto dal decreto se disponibile
+    data_scadenza_stipendi = calcola_data_scadenza_stipendi(
+        data_decorrenza_economica=data_decorrenza_economica,
+        preruolo_soli_fini_economici=preruolo_soli_fini_economici,
+        classe_stipendiale=classe_stipendiale,
+    ) or _get(art2, "data_scadenza") or _get(prof, "data_scadenza_stipendi") or ""
     data_conferma_in_ruolo = (
         _get(prof, "data_conferma_in_ruolo")
         or _get(prof, "data_conferma_ruolo")
@@ -379,9 +543,12 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         or data_decorrenza_economica
         or ""
     )
+    # Scadenza assegno: esplicita nel decreto (es. "01/01/9999" per non-riassorbibile)
+    # altrimenti coincide con la scadenza stipendi
     data_scadenza_assegno = (
         _get(art4, "data_scadenza")
         or _get(art4, "data_scadenza_assegno")
+        or data_scadenza_stipendi
         or ""
     )
 
@@ -399,9 +566,22 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         or _get(decreto, "periodo_totale_soli_fini_economici")
     )
 
-    prox_var_stipendi = _prox_variazione_automatica_stipendi(classe_stipendiale)
     soggetto_prescriz = _soggetto_a_prescrizione(metadata)
     qualifica_noiipa = _noiipa_qualifica(qualifica_raw)
+
+    # Righe variazione stipendi: una per ogni classe da "00" alla classe corrente
+    righe_stipendi = calcola_righe_variazione_stipendi(
+        data_decorrenza_economica=data_decorrenza_economica,
+        data_decorrenza_giuridica=data_decorrenza_giuridica,
+        preruolo_soli_fini_economici=preruolo_soli_fini_economici,
+        classe_stipendiale=classe_stipendiale,
+        qualifica_noiipa=qualifica_noiipa,
+    )
+    # data_scadenza_stipendi = scadenza dell'ultima riga (classe corrente)
+    data_scadenza_stipendi = righe_stipendi[-1]["scadenza"] if righe_stipendi else (
+        calcola_data_scadenza_stipendi(data_decorrenza_economica, preruolo_soli_fini_economici, classe_stipendiale)
+        or _get(art2, "data_scadenza") or _get(prof, "data_scadenza_stipendi") or ""
+    )
 
     return {
         # Anagrafica
@@ -414,9 +594,9 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         "Data di decorrenza giuridica": data_decorrenza_giuridica,
         "Data di decorrenza giuridca": data_decorrenza_giuridica,   # typo nel template originale
         "Data di decorrenza economica": data_decorrenza_economica,
-        # [Data di scadenza] in B27 = stipendi, in B34 = assegni → gestiti separatamente
+        # [Data di scadenza] in B27 = scadenza ultima classe; in B34 = assegni → gestiti separatamente
         "Data di scadenza": data_scadenza_stipendi,
-        # Stipendi
+        # Stipendi (usati solo se B27 ha una sola riga / fallback)
         "Qualifica professionale": qualifica_noiipa,
         "Classe stipendiale": classe_stipendiale,
         # Assegni
@@ -440,7 +620,7 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         # campi privati: gestiti direttamente in fill_excel
         "_assenze": assenze_raw,
         "_data_scadenza_assegno": data_scadenza_assegno,
-        "_prox_var_stipendi": prox_var_stipendi,
+        "_righe_stipendi": righe_stipendi,
     }
 
 
@@ -470,6 +650,27 @@ def _fill_assenze_in_cell(text: str, assenze: list[dict]) -> str:
 SHEET_NAME = "Prospetto applicazione"
 
 
+def _build_b27(header_line: str, righe: list[dict]) -> str:
+    """
+    Costruisce il contenuto testuale di B27 con header + una riga per classe.
+
+    Formato dati (pipe-separated, allineato allo stile del template):
+      dec_econ  | dec_giur  | scadenza  | qualifica  | classe  | prox_var
+    """
+    data_lines = []
+    for r in righe:
+        line = (
+            f"{r['dec_econ']:<38}"
+            f"| {r['dec_giur']:<40}"
+            f"| {r['scadenza']:<34}"
+            f"| {r['qualifica']:<50}"
+            f"| {r['classe']:<44}"
+            f"| {r['prox_var']}"
+        )
+        data_lines.append(line)
+    return header_line + "\n" + "\n".join(data_lines)
+
+
 def fill_excel(template_bytes: bytes, mapping: dict) -> bytes:
     wb = load_workbook(io.BytesIO(template_bytes))
 
@@ -479,7 +680,7 @@ def fill_excel(template_bytes: bytes, mapping: dict) -> bytes:
     ws = wb[SHEET_NAME]
     assenze = mapping.pop("_assenze", [])
     data_scadenza_assegno = mapping.pop("_data_scadenza_assegno", "")
-    prox_var_stipendi = mapping.pop("_prox_var_stipendi", "Sì")
+    righe_stipendi = mapping.pop("_righe_stipendi", [])
 
     # Mapping specifico per B34: [Data di scadenza] = scadenza assegno
     mapping_assegni = dict(mapping)
@@ -494,18 +695,20 @@ def fill_excel(template_bytes: bytes, mapping: dict) -> bytes:
             coord = cell.coordinate
             new_value = cell.value
 
-            # Gestione assenze (B4)
+            # Assenze (B4)
             new_value = _fill_assenze_in_cell(new_value, assenze)
 
-            # B34: variazione assegni → usa scadenza assegno
+            # B34: usa scadenza assegno
             if coord == "B34":
                 new_value = _replace_all(new_value, mapping_assegni)
             else:
                 new_value = _replace_all(new_value, mapping)
 
-            # B27: "Sì/No" è un testo letterale (non tra []), sostituisci con valore calcolato
-            if coord == "B27":
-                new_value = new_value.replace("Sì/No", prox_var_stipendi)
+            # B27: sostituisce la riga dati template con una riga per ogni classe
+            if coord == "B27" and righe_stipendi:
+                lines = new_value.split("\n")
+                header = lines[0]  # intestazione colonne
+                new_value = _build_b27(header, righe_stipendi)
 
             if new_value != cell.value:
                 cell.value = new_value

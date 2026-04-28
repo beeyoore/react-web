@@ -67,7 +67,7 @@ FAKE_DECRETO = {
 
     # Sezione professionale
     "dati_professionali": {
-        "qualifica_funzionale": "Docente scuola superiore",
+        "qualifica_funzionale": "Docente scuola superiore diplomato",
         # data_decorrenza_giuridica = data_immissione_in_ruolo
         "data_immissione_in_ruolo": "01/09/2023",
         "data_decorrenza_giuridica": "01/09/2023",
@@ -75,8 +75,8 @@ FAKE_DECRETO = {
         "data_decorrenza_economica": "01/09/2023",
         "data_assunzione_in_servizio": "01/09/2023",
         "data_conferma_in_ruolo": "01/09/2023",
-        "classe_stipendiale": "09",
-        "data_scadenza_stipendi": "01/09/2027",
+        "classe_stipendiale": "00",
+      #  "data_scadenza_stipendi": "01/09/2027",
     },
 
     # Intestazione decreto
@@ -88,8 +88,8 @@ FAKE_DECRETO = {
 
     # Art. 2 — variazione stipendi
     "articolo_2": {
-        "classe_stipendiale": "09",
-        "data_scadenza": "01/09/2027",
+        "classe_stipendiale": "00",
+       # "data_scadenza": "01/09/2027",
         "periodo_totale_fini_giuridici_economici": {
             "anni": 5,
             "mesi": 2,
