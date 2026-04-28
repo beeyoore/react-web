@@ -1,6 +1,6 @@
-import PreHeader from '../components/PreHeader';
-import TopHeader from '../components/TopHeader';
-import SubheaderMenu from '../components/SubheaderMenu';
+import PreHeader from '../../components/PreHeader';
+import TopHeader from '../../components/TopHeader';
+import SubheaderMenu from '../../components/SubheaderMenu';
 
 const MOCK_PRACTICES = [
   {
@@ -200,11 +200,11 @@ function FooterBar() {
   );
 }
 
-// Variant-specific content
+// Variant-specific content for Stipendi
 const VARIANT_CONTENT = {
   T0: {
     title: (salutation, displayName, userName) => `${salutation} ${displayName || userName},`,
-    description: 'RTS (TDB nome) e la piattaforma che utilizza l\'intelligenza artificiale per supportarti nei controlli amministrativo-contabili sui decreti. Carica la documentazione, verifica le anomalie segnalate e consulta l\'esito proposto dal sistema. Dopo la verifica, puoi procedere con il visto o avviare osservazioni tramite il sistema di gestione documentale.',
+    description: 'RTS (TDB nome) è la piattaforma che utilizza l\'intelligenza artificiale per supportarti nella gestione degli stipendi e delle pratiche correlate. Carica la documentazione necessaria, verifica le anomalie segnalate e consulta l\'esito proposto dal sistema. Gestisci facilmente tutte le tue pratiche in un unico posto.',
   },
   T1: {
     title: (salutation, displayName, userName) => {
@@ -216,7 +216,7 @@ const VARIANT_CONTENT = {
   },
 };
 
-export default function Homepage({ variant = 'T0', userName, displayName, salutation = 'Benvenuto', onNuovaPratica }) {
+export default function HomepageStipendi({ variant = 'T0', userName, displayName, salutation = 'Benvenuto', onNuovaPratica }) {
   const recentPractices = MOCK_PRACTICES.slice(0, 2);
   const hasPractices = MOCK_PRACTICES.length > 0;
   
@@ -225,7 +225,7 @@ export default function Homepage({ variant = 'T0', userName, displayName, saluta
   const descriptionText = content.description;
 
   return (
-    <div className="homepage-t0" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f5f6f8' }}>
+    <div className="homepage-stipendi" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f5f6f8' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 100 }}>
         <PreHeader />
         <TopHeader userName={userName} />
@@ -514,23 +514,23 @@ export default function Homepage({ variant = 'T0', userName, displayName, saluta
 
       <style>{`
         @media (max-width: 980px) {
-          .homepage-t0 .homepage-hero {
+          .homepage-stipendi .homepage-hero {
             grid-template-columns: 1fr !important;
             padding: 20px !important;
           }
-          .homepage-t0 .homepage-section {
+          .homepage-stipendi .homepage-section {
             padding-left: 16px !important;
             padding-right: 16px !important;
           }
-          .homepage-t0 .homepage-title {
+          .homepage-stipendi .homepage-title {
             font-size: 32px !important;
             line-height: 40px !important;
           }
-          .homepage-t0 .homepage-description {
+          .homepage-stipendi .homepage-description {
             font-size: 16px !important;
             line-height: 24px !important;
           }
-          .homepage-t0 .homepage-heading {
+          .homepage-stipendi .homepage-heading {
             font-size: 28px !important;
             line-height: 34px !important;
           }
