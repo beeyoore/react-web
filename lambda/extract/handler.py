@@ -5,7 +5,7 @@ import re
 import unicodedata
 import urllib.parse
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ bedrock = boto3.client(
 )
 dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "eu-central-1"))
 lambda_client = boto3.client("lambda", region_name=os.environ.get("AWS_REGION", "eu-central-1"))
+sfn_client = boto3.client("stepfunctions", region_name=os.environ.get("AWS_REGION", "eu-central-1"))
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -151,39 +152,6 @@ DOCENTE_QUALIFICA_STEMS = {
     "educator",
 }
 
-SERVICE_MERGE_LOGIC_VERSION = "service-merge-date-first-v2"
-
-ABSENCE_ROW_HINTS = {
-    "assenz",
-    "permess",
-    "conged",
-    "malatti",
-    "covid",
-    "parental",
-    "matern",
-    "patern",
-    "aspettat",
-    "infort",
-}
-
-SERVICE_ROW_HINTS = {
-    "giorni effettivi",
-    "orario settimanale",
-    "in qualita",
-    "tipo posto",
-    "tipo nomina",
-    "autorita nomina",
-    "situazione prev",
-    "qual retributiva",
-    "periodo retribuito",
-    "tipo servizio",
-    "tipo attivita",
-    "partec scrutini",
-    "scrutini e esami",
-    "sede servizio",
-    "classe di concorso",
-}
-
 CATEGORY_CLASSIFICATION_SYSTEM_PROMPT = """
 Sei un classificatore prudente della categoria del personale in un decreto di ricostruzione carriera.
 
@@ -228,7 +196,6 @@ Regole obbligatorie:
 - se `formsByPage`, `pagesText` e `text` mostrano lo stesso nominativo, mantieni esattamente quella grafia; una consonante doppia mancante o aggiunta e un errore
 - per i campi ripetuti restituisci un array di oggetti coerente con `item_struttura`
 - per i campi con `per_servizio: true`, mantieni l'allineamento logico richiesto dallo schema; se le istruzioni del campo descrivono piu periodi distinti, restituisci un elemento per ciascun periodo riconoscibile nello stesso ordine di comparsa
-- per le assenze annidate dentro un servizio, associa ogni assenza al servizio corretto quando condivide la stessa riga, sezione, blocco o un periodo compatibile; lascia `assenze` vuoto solo se l'assenza non e agganciabile in modo affidabile a nessun servizio specifico
 - per i boolean usa solo true o false
 - per le date rispetta il formato richiesto dal campo nello schema
 - se il campo richiede `Date (DD/MM/YYYY)`, mantieni l'ordine italiano giorno/mese/anno
@@ -240,111 +207,6 @@ Regole obbligatorie:
 - per tabelle presenti in `tablesByPage`, usa `tablesByPage` come fonte primaria per capire la geometria di righe e colonne; usa `formsByPage`, `pagesText` e `text` solo come supporto o verifica
 - restituisci solo JSON puro, senza testo aggiuntivo
 """.strip()
-
-
-SERVICE_SPECIALIZED_EXTRACTION_SYSTEM_PROMPT = """
-Sei un estrattore specializzato di servizi scolastici italiani.
-
-Ricevi:
-- lo schema anagrafico del documento servizi
-- lo schema dei campi del singolo servizio
-- lo schema dei campi della singola assenza
-- il clean del documento
-
-Devi restituire SOLO un JSON con questa struttura:
-{
-  "anagrafica": { ... },
-  "servizi": [
-    {
-      "indice": 0,
-      "<campi_servizio>": "..."
-    }
-  ],
-  "assenze": [
-    {
-      "indice": 0,
-      "<campi_assenza>": "..."
-    }
-  ]
-}
-
-Regole obbligatorie:
-- Estrai un elemento in `servizi` per ogni riga o blocco di servizio. Mai aggregare servizi diversi.
-- Estrai un elemento in `assenze` per ogni riga di assenza o permesso presente nel documento.
-- In questo step NON devi ancora assegnare le assenze ai servizi.
-- Usa esattamente i nomi campo forniti negli schemi ricevuti.
-- Per l'anagrafica, usa come fonte prioritaria la riga nominativa esplicita del certificato, tipicamente vicina a formule come `si certifica che`, `nato/a a`, `nata a`, `il`.
-- `nome_cognome` deve essere copiato in modo letterale dalla fonte anagrafica piu esplicita: non normalizzare, non correggere, non riassumere e non perdere lettere.
-- Presta attenzione ai cognomi con consonanti doppie: una grafia come `FERRETTI` non puo diventare `FERRETI`.
-- Se il nominativo compare anche in `formsByPage`, `pagesText` o `text`, usa la grafia coerente con la maggioranza delle occorrenze esplicite; se una sola fonte isola diverge ma le altre concordano, segui la grafia concordante.
-- Non usare intestazioni di istituto, firme, sigle o nomi di sedi per ricostruire l'anagrafica della persona.
-- Per i certificati di servizio, mappa normalmente:
-  - `Dec. Giuridica` -> `data_inizio`
-  - `Dec. Econom.` -> `periodo_retribuito_inizio`
-  - `Fine servizio` -> `data_fine` e, se il documento non espone un diverso termine retribuito, anche `periodo_retribuito_fine`
-  - `Data inizio` / `Data fine` / `Giorni` / `Motivo assenza` -> campi assenza corrispondenti
-- Se un servizio riporta esplicitamente `Classe di concorso`, copia il valore nel campo `classe_concorso`; se non e presente in modo affidabile usa null.
-- Nei certificati di servizio, l'elenco dei servizi puo comparire in piu blocchi separati: servizi iniziali, poi assenze/permessi, poi altri servizi nelle pagine successive. Non assumere mai che la lista dei servizi termini prima della sezione assenze.
-- Se dopo una sezione `Assenze` o `Permessi` ricompaiono pattern da servizio come due date di periodo, anno scolastico, `Periodo retribuito`, `Tipo servizio`, `Partec. scrutini e esami`, devi estrarre anche quei servizi successivi.
-- Non fondere mai due servizi distinti solo perche hanno stessa qualifica, stessa scuola o stesso anno scolastico. Ogni coppia distinta di periodo di servizio (`data_inizio`/`data_fine` oppure `periodo_retribuito_inizio`/`periodo_retribuito_fine`) corrisponde a un servizio separato.
-- Se a fondo pagina compare l'inizio di un nuovo servizio e i dettagli continuano nella pagina successiva, devi comunque riconoscere quel nuovo servizio come elemento distinto.
-- Per l'estrazione dei servizi usa come fonte primaria `tablesByPage` quando contiene righe o blocchi di servizio; usa `formsByPage` e `pagesText` come supporto per completare o verificare i dettagli mancanti.
-- In `tablesByPage`, considera come servizio ogni riga o blocco che mostra un periodo distinto con due date e dettagli coerenti come `In qualita`, `Tipo servizio`, `Periodo retribuito`, `Partec. scrutini e esami`, `Sede servizio`, `Tipo nomina`, `Classe di concorso`.
-- Se una riga tabellare mostra chiaramente un nuovo periodo di servizio con dettagli di servizio nello stesso blocco, devi creare un nuovo elemento in `servizi` anche se subito dopo compare un altro servizio nella stessa pagina o nella pagina successiva.
-- Se una tabella contiene servizi, poi una sezione assenze, poi di nuovo servizi, devi riprendere l'estrazione dei servizi dal blocco tabellare successivo; la sezione assenze non chiude definitivamente la lista dei servizi.
-- Se due righe tabellari consecutive hanno periodi diversi, anche se sono nello stesso anno o nella stessa scuola, sono due servizi distinti.
-- Usa `tablesByPage`, `formsByPage` e `pagesText` anche per contare i blocchi di servizio: se nel documento riconosci N periodi di servizio distinti, l'array `servizi` deve contenere N elementi nello stesso ordine di apparizione.
-- Prima di restituire il JSON, fai un controllo finale di completezza dei servizi: verifica di non esserti fermato all'ultimo servizio prima delle assenze, di non aver saltato servizi successivi presenti dopo la sezione assenze e di avere un elemento `servizi` per ogni periodo distinto leggibile in `tablesByPage`.
-- Per i campi data dei servizi e delle assenze, leggi sempre le etichette di colonna o di form prima di valorizzare i campi:
-  - `data_inizio` e `periodo_fruizione_inizio` corrispondono sempre all'inizio del periodo
-  - `data_fine` e `periodo_fruizione_fine` corrispondono sempre alla fine del periodo
-  - non invertire mai inizio e fine
-- Se in una riga di assenza o di servizio trovi due date, usa la prima solo se il documento la presenta davvero come inizio e la seconda solo se il documento la presenta davvero come fine.
-- Se la colonna o il layout sono chiari (`Data inizio`, `Dal`, `Dec. Giuridica`, `Inizio`) non devi reinterpretare l'ordine in modo creativo.
-- Se l'output che stai per produrre ha una data di inizio successiva alla data di fine, considera il dato sospetto, rileggi la riga, le intestazioni e le celle vicine, e correggi il mapping prima di rispondere.
-- Prima di restituire il JSON, fai un controllo finale di coerenza:
-  - per ogni servizio con inizio e fine entrambe presenti, `data_inizio` non puo essere successiva a `data_fine`
-  - per ogni assenza con inizio e fine entrambe presenti, `periodo_fruizione_inizio` non puo essere successiva a `periodo_fruizione_fine`
-- Se non riesci a determinare in modo affidabile quale delle due date sia l'inizio e quale la fine, usa null invece di invertirle o indovinarle.
-- Se il documento contiene una tabella servizi separata da una tabella assenze, estrai entrambe le liste in modo indipendente e fedele.
-- Le tabelle di assenze possono continuare nella pagina successiva senza ripetere il titolo o l'intestazione: considera le righe della pagina successiva come parte della stessa lista finche il formato delle colonne resta coerente.
-- Non fermarti al cambio pagina: se una tabella di assenze prosegue nella pagina seguente, devi estrarre anche tutte le righe successive.
-- Non associare mai un'assenza al servizio piu vicino: l'assegnazione verra fatta dopo in modo deterministico.
-- Quando lo schema prevede una durata in giorni (`durata_assenza_giorni` o equivalente), usa un intero solo se rappresenta davvero un numero di giorni.
-- Se il documento espone un valore esplicito in giorni, usa quel numero.
-- Se il documento non espone i giorni ma il periodo inizio/fine e certo, calcola i giorni di calendario del periodo includendo sia il giorno iniziale sia il giorno finale.
-- Se la durata e scritta in mesi o anni (per esempio `11 mesi e 11 giorni`), non copiare mai il primo numero nel campo durata in giorni; usa i giorni esatti solo se ricavabili in modo affidabile dal periodo, altrimenti usa null.
-- Mantieni `tipologia_assenza` pulita e fedele alla causale/codice dell'assenza; non aggiungere frammenti di durata se non fanno parte della causale stessa.
-- Rispetta il formato data richiesto dallo schema dei campi.
-- Se un valore non e leggibile in modo affidabile, usa null.
-- Restituisci solo JSON puro, senza markdown e senza testo aggiuntivo.
-""".strip()
-
-
-def _service_debug_enabled() -> bool:
-    return os.environ.get("SERVICE_EXTRACTION_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _truncate_debug_string(value: str, max_chars: int = 20000) -> str:
-    if len(value) <= max_chars:
-        return value
-    return value[:max_chars] + f" ...[truncated {len(value) - max_chars} chars]"
-
-
-def _log_service_debug_snapshot(stage: str, **payload) -> None:
-    if not _service_debug_enabled():
-        return
-
-    try:
-        serialized = json.dumps(payload, ensure_ascii=False, default=str)
-    except TypeError:
-        serialized = json.dumps({"payload_repr": repr(payload)}, ensure_ascii=False)
-
-    logger.info(
-        "service_debug stage=%s payload=%s",
-        stage,
-        _truncate_debug_string(serialized),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1218,1054 +1080,28 @@ def _is_service_document_section(schema_section: dict) -> bool:
     return _get_schema_section_tipo_documento(schema_section) in ALTERNATIVE_SERVICE_DOCUMENT_TYPES
 
 
-def extract_service_components_with_model(
-    model_id: str,
-    schema_section_name: str,
-    schema_section: dict,
-    extraction_view: dict,
-) -> dict:
+SERVICE_DOCUMENT_PAYLOAD_FIELDS = {"servizi"}
+
+
+def schema_section_for_entity_extraction(schema_section: dict) -> tuple[dict, set[str]]:
+    if not _is_service_document_section(schema_section):
+        return schema_section, set()
+
     campi = schema_section.get("campi", {})
-    anagrafica_schema = campi.get("anagrafica", {})
-    servizi_node = campi.get("servizi") or {}
-    servizi_schema = servizi_node.get("item_struttura", {})
-    assenze_schema = ((servizi_schema.get("assenze") or {}).get("item_struttura") or {})
-    service_fields_schema = {k: v for k, v in servizi_schema.items() if k != "assenze"}
+    if not isinstance(campi, dict):
+        return schema_section, set()
 
-    user_payload = {
-        "schemaSection": schema_section_name,
-        "tipoDocumentoTecnico": _get_schema_section_tipo_documento(schema_section),
-        "anagraficaSchema": anagrafica_schema,
-        "serviceFieldsSchema": service_fields_schema,
-        "absenceFieldsSchema": assenze_schema,
-        "document": {
-            "sourceFile": extraction_view.get("sourceFile"),
-            "textPreview": extraction_view.get("textPreview"),
-            "pagesText": extraction_view.get("pagesText", []),
-            "formsByPage": extraction_view.get("formsByPage", []),
-            "tablesByPage": extraction_view.get("tablesByPage", []),
-            "text": extraction_view.get("text", ""),
-        },
+    removed_fields = set(campi) & SERVICE_DOCUMENT_PAYLOAD_FIELDS
+    if not removed_fields:
+        return schema_section, set()
+
+    extraction_section = dict(schema_section)
+    extraction_section["campi"] = {
+        field_name: field_schema
+        for field_name, field_schema in campi.items()
+        if field_name not in removed_fields
     }
-
-    body = {
-        "messages": [
-            {
-                "role": "user",
-                "content": [{"text": json.dumps(user_payload, ensure_ascii=False)}],
-            }
-        ],
-        "system": [{"text": SERVICE_SPECIALIZED_EXTRACTION_SYSTEM_PROMPT}],
-        "inferenceConfig": {
-            "maxTokens": 6000,
-            "temperature": 0,
-            "topP": 0.9,
-        },
-    }
-
-    response = bedrock.invoke_model(
-        modelId=model_id,
-        body=json.dumps(body),
-        contentType="application/json",
-        accept="application/json",
-    )
-
-    response_body = json.loads(response["body"].read())
-    raw_text = get_text_block(response_body)
-    _log_bedrock_response_meta("entity_extractor_service_bedrock_response", response_body, raw_text)
-    parsed = parse_model_json(raw_text)
-    _log_service_debug_snapshot(
-        "specialized_llm_raw",
-        schemaSection=schema_section_name,
-        sourceFile=extraction_view.get("sourceFile"),
-        anagrafica=parsed.get("anagrafica"),
-        servizi=parsed.get("servizi"),
-        assenze=parsed.get("assenze"),
-    )
-    return parsed
-
-
-def _normalize_list_against_item_schema(item_schema: dict, raw_items: Any) -> list[dict]:
-    if not item_schema:
-        return []
-    return normalize_against_schema({"item_struttura": item_schema}, raw_items) or []
-
-
-def _normalize_cell_text(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip()
-
-
-def _iter_tables_in_page_order(tables_by_page: list[dict]):
-    for page_entry in sorted(tables_by_page or [], key=lambda entry: entry.get("page", 0)):
-        page_number = page_entry.get("page", 0)
-        for table in sorted(page_entry.get("items") or [], key=lambda item: item.get("tableIndex", 0)):
-            yield page_number, table.get("tableIndex", 0), table.get("rows") or []
-
-
-def _iter_forms_in_page_order(forms_by_page: list[dict]):
-    for page_entry in sorted(forms_by_page or [], key=lambda entry: entry.get("page", 0)):
-        page_number = page_entry.get("page", 0)
-        for item_index, item in enumerate(page_entry.get("items") or []):
-            key_text = ((item.get("key") or {}).get("text") or "").strip()
-            value_text = ((item.get("value") or {}).get("text") or "").strip()
-            yield page_number, item_index, key_text, value_text
-
-
-def _extract_dates_from_text(text_value: str | None) -> list[str]:
-    if not text_value:
-        return []
-
-    candidates = re.findall(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}[/-]\d{2}[/-]\d{2}\b", text_value)
-    extracted = []
-    seen = set()
-    for candidate in candidates:
-        normalized = _try_parse_date_string(candidate, italian_format=False)
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            extracted.append(normalized)
-    return extracted
-
-
-def _extract_school_year_from_text(text_value: str | None) -> str | None:
-    if not text_value:
-        return None
-
-    match = re.search(r"\b(\d{4})\s*[-/]\s*(\d{4})\b", text_value)
-    if not match:
-        return None
-
-    year_start, year_end = map(int, match.groups())
-    if year_end != year_start + 1:
-        return None
-    return f"{year_start:04d}/{year_end:04d}"
-
-
-def _infer_school_year_from_dates(start_value: str | None, end_value: str | None) -> str | None:
-    start_date = _parse_date_to_date(start_value)
-    end_date = _parse_date_to_date(end_value)
-    reference = start_date or end_date
-    if not reference:
-        return None
-
-    school_year_start = reference.year if reference.month >= 9 else reference.year - 1
-    return f"{school_year_start:04d}/{school_year_start + 1:04d}"
-
-
-def _parse_scrutini_value(text_value: str | None) -> bool | None:
-    normalized = normalize_text_for_match(text_value)
-    if not normalized:
-        return None
-    if re.search(r"\bsi\b", normalized):
-        return True
-    if re.search(r"\bno\b", normalized):
-        return False
-    return None
-
-
-def _extract_labeled_fragment(text_value: str | None, label_pattern: str) -> str | None:
-    if not text_value:
-        return None
-
-    stop_pattern = (
-        r"(?:"
-        r"in\s*qualit[aà]\s*di|"
-        r"classe\s*di\s*concorso|"
-        r"tipo\s*posto|"
-        r"tipo\s*nomina|"
-        r"autorit[aà]\s*nomina|"
-        r"situazione\s*prev|"
-        r"qual\.?\s*retributiva|"
-        r"periodo\s*retribuito|"
-        r"tipo\s*servizio|"
-        r"tipo\s*attivit[aà]|"
-        r"qual\.?\s*servizio|"
-        r"partec\.?\s*scrutini(?:\s*e\s*esami)?|"
-        r"sede\s*servizio|"
-        r"sede\s*titolarit[aà]|"
-        r"data\s*protocollo|"
-        r"num\.?\s*protocollo|"
-        r"giorni\s*effettivi|"
-        r"anno\s*scolastico"
-        r")"
-    )
-    match = re.search(
-        rf"{label_pattern}\s*:?\s*(.+?)(?=\s*{stop_pattern}\s*:|\s*$)",
-        text_value,
-        flags=re.IGNORECASE,
-    )
-    if not match:
-        return None
-
-    fragment = _normalize_cell_text(match.group(1))
-    return fragment or None
-
-
-def _build_service_updates_from_form(key_text: str, value_text: str) -> dict:
-    normalized_key = normalize_text_for_match(key_text)
-    clean_value = _normalize_cell_text(value_text)
-    updates = {}
-
-    if not normalized_key or not clean_value:
-        return updates
-
-    if "periodo retribuito" in normalized_key:
-        dates = _extract_dates_from_text(clean_value)
-        if len(dates) >= 2:
-            updates["periodo_retribuito_inizio"] = dates[0]
-            updates["periodo_retribuito_fine"] = dates[1]
-            updates["data_inizio"] = dates[0]
-            updates["data_fine"] = dates[1]
-            school_year = _infer_school_year_from_dates(dates[0], dates[1])
-            if school_year:
-                updates["anno_scolastico"] = school_year
-        return updates
-
-    if "in qualita" in normalized_key:
-        updates["qualifica_professionale"] = clean_value
-        return updates
-
-    if "tipo servizio" in normalized_key:
-        updates["tipo_servizio"] = clean_value
-        return updates
-
-    if "classe di concorso" in normalized_key:
-        updates["classe_concorso"] = clean_value
-        return updates
-
-    if "partec scrutini e esami" in normalized_key or "partec scrutini" in normalized_key:
-        parsed_value = _parse_scrutini_value(clean_value)
-        if parsed_value is not None:
-            updates["partecipazione_scrutini"] = parsed_value
-        return updates
-
-    if "anno scolastico" in normalized_key:
-        school_year = _extract_school_year_from_text(clean_value)
-        if school_year:
-            updates["anno_scolastico"] = school_year
-        return updates
-
-    return updates
-
-
-def _service_candidate_has_identity(candidate: dict) -> bool:
-    return bool(
-        candidate.get("periodo_retribuito_inizio")
-        and candidate.get("periodo_retribuito_fine")
-    )
-
-
-def _service_candidate_should_split(current: dict, updates: dict) -> bool:
-    if not current or not updates or not _service_candidate_has_identity(current):
-        return False
-
-    for key, value in updates.items():
-        current_value = current.get(key)
-        if current_value in (None, "", []) or value in (None, "", []):
-            continue
-        if current_value != value:
-            return True
-    return False
-
-
-def _merge_service_candidate_updates(candidate: dict, updates: dict) -> None:
-    for key, value in updates.items():
-        if value in (None, "", []):
-            continue
-
-        current_value = candidate.get(key)
-        if current_value in (None, "", []):
-            candidate[key] = value
-            continue
-
-        if current_value == value:
-            continue
-
-        if isinstance(current_value, str) and isinstance(value, str) and len(value) > len(current_value):
-            candidate[key] = value
-
-
-def _finalize_service_candidate(candidate: dict) -> dict | None:
-    if not _service_candidate_has_identity(candidate):
-        return None
-
-    finalized = dict(candidate)
-    finalized.setdefault("data_inizio", finalized.get("periodo_retribuito_inizio"))
-    finalized.setdefault("data_fine", finalized.get("periodo_retribuito_fine"))
-
-    if not finalized.get("anno_scolastico"):
-        finalized["anno_scolastico"] = _infer_school_year_from_dates(
-            finalized.get("data_inizio"),
-            finalized.get("data_fine"),
-        )
-
-    if not (finalized.get("qualifica_professionale") or finalized.get("tipo_servizio")):
-        return None
-
-    return finalized
-
-
-def _extract_services_from_forms(forms_by_page: list[dict]) -> list[dict]:
-    extracted_services = []
-    current_candidate = {}
-
-    for page_number, item_index, key_text, value_text in _iter_forms_in_page_order(forms_by_page):
-        updates = _build_service_updates_from_form(key_text, value_text)
-        if not updates:
-            continue
-
-        if _service_candidate_should_split(current_candidate, updates):
-            finalized = _finalize_service_candidate(current_candidate)
-            if finalized:
-                extracted_services.append(finalized)
-            current_candidate = {}
-
-        _merge_service_candidate_updates(current_candidate, updates)
-
-        logger.debug(
-            "service_form_scan page=%s item=%s key=%s updates=%s",
-            page_number,
-            item_index,
-            key_text,
-            json.dumps(updates, ensure_ascii=False),
-        )
-
-    finalized = _finalize_service_candidate(current_candidate)
-    if finalized:
-        extracted_services.append(finalized)
-
-    return extracted_services
-
-
-def _looks_like_service_row(row: list[Any]) -> bool:
-    if not isinstance(row, list):
-        return False
-    if len(_row_dates(row)) < 2:
-        return False
-    if _looks_like_absence_row(row):
-        return False
-
-    normalized_row = normalize_text_for_match(_row_joined_text(row))
-    if not normalized_row:
-        return False
-
-    explicit_service_tokens = {
-        "periodo retribuito",
-        "in qualita",
-        "tipo servizio",
-        "partec scrutini",
-        "sede servizio",
-    }
-    return _normalized_text_contains_hint(normalized_row, SERVICE_ROW_HINTS) or any(
-        token in normalized_row for token in explicit_service_tokens
-    )
-
-
-def _build_service_item_from_table_row(row: list[Any]) -> dict | None:
-    if not _looks_like_service_row(row):
-        return None
-
-    dates = _row_dates(row)
-    if len(dates) < 2:
-        return None
-
-    row_text = _row_joined_text(row)
-    periodo_retribuito_text = _extract_labeled_fragment(row_text, r"periodo\s*retribuito")
-    periodo_retribuito_dates = _extract_dates_from_text(periodo_retribuito_text or "")
-
-    data_inizio = dates[0].isoformat()
-    data_fine = dates[1].isoformat()
-    periodo_retribuito_inizio = (
-        periodo_retribuito_dates[0] if len(periodo_retribuito_dates) >= 2 else data_inizio
-    )
-    periodo_retribuito_fine = (
-        periodo_retribuito_dates[1] if len(periodo_retribuito_dates) >= 2 else data_fine
-    )
-
-    item = {
-        "data_inizio": data_inizio,
-        "data_fine": data_fine,
-        "periodo_retribuito_inizio": periodo_retribuito_inizio,
-        "periodo_retribuito_fine": periodo_retribuito_fine,
-    }
-
-    qualifica = _extract_labeled_fragment(row_text, r"in\s*qualit[aà]\s*di")
-    if qualifica:
-        item["qualifica_professionale"] = qualifica
-
-    tipo_servizio = _extract_labeled_fragment(row_text, r"tipo\s*servizio")
-    if tipo_servizio:
-        item["tipo_servizio"] = tipo_servizio
-
-    classe_concorso = _extract_labeled_fragment(row_text, r"classe\s*di\s*concorso")
-    if classe_concorso:
-        item["classe_concorso"] = classe_concorso
-
-    scrutini_text = _extract_labeled_fragment(row_text, r"partec\.?\s*scrutini(?:\s*e\s*esami)?")
-    scrutini_value = _parse_scrutini_value(scrutini_text or row_text)
-    if scrutini_value is not None:
-        item["partecipazione_scrutini"] = scrutini_value
-
-    anno_scolastico = _extract_school_year_from_text(row_text)
-    if not anno_scolastico:
-        anno_scolastico = _infer_school_year_from_dates(item["data_inizio"], item["data_fine"])
-    if anno_scolastico:
-        item["anno_scolastico"] = anno_scolastico
-
-    return _finalize_service_candidate(item)
-
-
-def _extract_services_from_tables(tables_by_page: list[dict]) -> list[dict]:
-    extracted_services = []
-
-    for page_number, table_index, rows in _iter_tables_in_page_order(tables_by_page):
-        detected_rows = 0
-        for row in rows:
-            service_item = _build_service_item_from_table_row(row)
-            if not service_item:
-                continue
-            extracted_services.append(service_item)
-            detected_rows += 1
-
-        if detected_rows:
-            logger.info(
-                "service_table_service_scan page=%s table=%s detected_rows=%s",
-                page_number,
-                table_index,
-                detected_rows,
-            )
-
-    return extracted_services
-
-
-def _extract_services_with_support(tables_by_page: list[dict], forms_by_page: list[dict]) -> list[dict]:
-    table_services = _extract_services_from_tables(tables_by_page)
-    form_services = _extract_services_from_forms(forms_by_page)
-    merged_services = _merge_service_lists(
-        table_services,
-        form_services,
-        merge_missing_fields=True,
-    )
-
-    _log_service_debug_snapshot(
-        "table_services_extracted",
-        mergeLogicVersion=SERVICE_MERGE_LOGIC_VERSION,
-        tableServices=table_services,
-        formSupportServices=form_services,
-        services=merged_services,
-        count=len(merged_services),
-    )
-    return merged_services
-
-
-def _row_dates(row: list[Any]) -> list[date]:
-    parsed_dates = []
-    for cell in row:
-        parsed = _parse_date_to_date(_normalize_cell_text(cell))
-        if parsed:
-            parsed_dates.append(parsed)
-        if len(parsed_dates) == 2:
-            break
-    return parsed_dates
-
-
-def _extract_duration_from_row(row: list[Any]) -> int | None:
-    for cell in row:
-        cell_text = _normalize_cell_text(cell)
-        if not cell_text:
-            continue
-
-        if re.search(r"durata\s*[:=]?\s*\d{1,3}\s*(?:mesi?|anni?)\b", cell_text, flags=re.IGNORECASE):
-            continue
-
-        explicit_match = re.search(r"(?:durata|giorni?|gg\.?)\s*[:=]?\s*(\d{1,3})", cell_text, flags=re.IGNORECASE)
-        if explicit_match:
-            return int(explicit_match.group(1))
-
-    for cell in row:
-        cell_text = _normalize_cell_text(cell)
-        if re.fullmatch(r"\d{1,3}", cell_text):
-            value = int(cell_text)
-            if 0 < value <= 366:
-                return value
-    return None
-
-
-def _clean_absence_description(text_value: str) -> str:
-    cleaned = text_value
-    cleaned = re.sub(r"durata\s*:\s*\d+\s*giorni?", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"%\s*retribuzione\s*:\s*[0-9.,]+", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"retribuzione\s*:\s*[0-9.,]+", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -;,.:")
-    cleaned = re.sub(r"(?:\b(?:o|e|ed)\b)\s*$", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -;,.:")
-    return cleaned.strip()
-
-
-def _normalized_text_contains_hint(normalized_text: str, hints: set[str]) -> bool:
-    return any(hint in normalized_text for hint in hints)
-
-
-def _count_matching_hints(normalized_text: str, hints: set[str]) -> int:
-    return sum(1 for hint in hints if hint in normalized_text)
-
-
-def _row_joined_text(row: list[Any]) -> str:
-    return " ".join(_normalize_cell_text(cell) for cell in row if _normalize_cell_text(cell))
-
-
-def _extract_absence_code(text_value: str | None) -> str | None:
-    if not text_value:
-        return None
-
-    cleaned = _clean_absence_description(text_value)
-    normalized = normalize_text_for_match(cleaned)
-    if not _normalized_text_contains_hint(normalized, ABSENCE_ROW_HINTS):
-        return None
-
-    match = re.search(r"\(([A-Z]{1,5}\d{0,3})\)", cleaned, flags=re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(1).upper()
-
-
-def _absence_description_key(text_value: str | None) -> str:
-    if not text_value:
-        return ""
-
-    cleaned = _clean_absence_description(text_value)
-    code = _extract_absence_code(cleaned)
-    if code:
-        return code
-
-    normalized = normalize_text_for_match(cleaned)
-    normalized = re.sub(r"(?:\b(?:o|e|ed)\b)\s*$", "", normalized).strip()
-    return normalized
-
-
-def _is_probable_absence_description(text_value: str | None) -> bool:
-    if not text_value:
-        return False
-
-    cleaned = _clean_absence_description(text_value)
-    normalized = normalize_text_for_match(cleaned)
-    if not normalized:
-        return False
-
-    absence_hint_count = _count_matching_hints(normalized, ABSENCE_ROW_HINTS)
-    service_hint_count = _count_matching_hints(normalized, SERVICE_ROW_HINTS)
-    has_absence_hint = absence_hint_count > 0
-    has_service_hint = service_hint_count > 0
-    has_absence_code = bool(_extract_absence_code(cleaned))
-
-    if service_hint_count >= 2 and absence_hint_count == 0:
-        return False
-    if has_service_hint and not has_absence_hint and not has_absence_code:
-        return False
-    if len(cleaned) > 140 and service_hint_count >= 1 and absence_hint_count <= 1:
-        return False
-
-    return has_absence_hint or has_absence_code
-
-
-def _extract_absence_description_from_row(row: list[Any]) -> str | None:
-    parts = []
-    date_values = _row_dates(row)
-    dates_left = len(date_values)
-
-    for cell in row:
-        cell_text = _normalize_cell_text(cell)
-        if not cell_text:
-            continue
-
-        if dates_left and _parse_date_to_date(cell_text):
-            dates_left -= 1
-            continue
-
-        if re.fullmatch(r"\d+(?:[.,]\d+)?", cell_text):
-            continue
-
-        if re.fullmatch(r"\d{4}/\d{4}", cell_text):
-            continue
-
-        parts.append(cell_text)
-
-    if not parts:
-        return None
-
-    cleaned = _clean_absence_description(" ".join(parts))
-    return cleaned or None
-
-
-def _row_contains_absence_hint(row: list[Any]) -> bool:
-    normalized_row = normalize_text_for_match(_row_joined_text(row))
-    return _normalized_text_contains_hint(normalized_row, ABSENCE_ROW_HINTS)
-
-
-def _row_contains_service_hint(row: list[Any]) -> bool:
-    normalized_row = normalize_text_for_match(_row_joined_text(row))
-    return _normalized_text_contains_hint(normalized_row, SERVICE_ROW_HINTS)
-
-
-def _table_has_absence_header(rows: list[list[Any]]) -> bool:
-    header_text = normalize_text_for_match(
-        " ".join(
-            _normalize_cell_text(cell)
-            for row in rows[:3]
-            for cell in row
-            if _normalize_cell_text(cell)
-        )
-    )
-    return any(token in header_text for token in ("assenze", "permessi", "motivo assenza", "assenza a s", "assenze a s"))
-
-
-def _looks_like_absence_row(row: list[Any], table_is_absence: bool = False) -> bool:
-    if not isinstance(row, list):
-        return False
-
-    dates = _row_dates(row)
-    if len(dates) < 2:
-        return False
-
-    description = _extract_absence_description_from_row(row)
-    duration = _extract_duration_from_row(row)
-    has_absence_hint = _row_contains_absence_hint(row)
-    has_service_hint = _row_contains_service_hint(row)
-
-    if has_service_hint and not has_absence_hint:
-        return False
-    if description and len(description) > 140 and has_service_hint:
-        return False
-
-    if has_absence_hint:
-        return bool(description and _is_probable_absence_description(description))
-
-    if table_is_absence:
-        return bool(duration is not None and description and _is_probable_absence_description(description))
-
-    return False
-
-
-def _build_absence_item_for_schema(assenze_schema: dict, row: list[Any]) -> dict | None:
-    dates = _row_dates(row)
-    if len(dates) < 2:
-        return None
-
-    description = _extract_absence_description_from_row(row)
-    if not _is_probable_absence_description(description):
-        return None
-
-    duration = _extract_duration_from_row(row)
-    item = {}
-
-    if "periodo_fruizione_inizio" in assenze_schema:
-        item["periodo_fruizione_inizio"] = dates[0].isoformat()
-    elif "data_inizio_assenza" in assenze_schema:
-        item["data_inizio_assenza"] = dates[0].isoformat()
-
-    if "periodo_fruizione_fine" in assenze_schema:
-        item["periodo_fruizione_fine"] = dates[1].isoformat()
-    elif "data_fine_assenza" in assenze_schema:
-        item["data_fine_assenza"] = dates[1].isoformat()
-
-    if "tipologia_assenza" in assenze_schema and description:
-        item["tipologia_assenza"] = description
-    elif "tipo_assenza" in assenze_schema and description:
-        item["tipo_assenza"] = description
-
-    if duration is not None:
-        if "durata_assenza_giorni" in assenze_schema:
-            item["durata_assenza_giorni"] = duration
-        elif "durata_interruzione_giorni" in assenze_schema:
-            item["durata_interruzione_giorni"] = duration
-
-    return item if item else None
-
-
-def _absence_identity(absence: dict) -> tuple:
-    start_value = absence.get("periodo_fruizione_inizio") or absence.get("data_inizio_assenza")
-    end_value = absence.get("periodo_fruizione_fine") or absence.get("data_fine_assenza")
-    return (start_value, end_value)
-
-
-def _absence_signature(absence: dict) -> tuple:
-    description = absence.get("tipologia_assenza") or absence.get("tipo_assenza") or ""
-    return _absence_identity(absence) + (_absence_description_key(description),)
-
-
-def _descriptions_loosely_match(left_description: str | None, right_description: str | None) -> bool:
-    left_key = _absence_description_key(left_description)
-    right_key = _absence_description_key(right_description)
-    if not left_key or not right_key:
-        return True
-    if left_key == right_key:
-        return True
-
-    left_code = _extract_absence_code(left_description)
-    right_code = _extract_absence_code(right_description)
-    if left_code and right_code and left_code == right_code:
-        return True
-
-    return left_key in right_key or right_key in left_key
-
-
-def _choose_preferred_absence_description(current: str | None, candidate: str | None) -> str | None:
-    options = [value for value in (current, candidate) if value]
-    if not options:
-        return None
-
-    def score(value: str) -> tuple:
-        cleaned = _clean_absence_description(value)
-        normalized = normalize_text_for_match(cleaned)
-        base_score = 0
-        if _extract_absence_code(cleaned):
-            base_score += 100
-        if _normalized_text_contains_hint(normalized, ABSENCE_ROW_HINTS):
-            base_score += 40
-        if _normalized_text_contains_hint(normalized, SERVICE_ROW_HINTS):
-            base_score -= 100
-        if re.search(r"(?:\b(?:o|e|ed)\b)\s*$", cleaned, flags=re.IGNORECASE):
-            base_score -= 10
-        return (base_score, -len(cleaned))
-
-    return max(options, key=score)
-
-
-def _service_identity(service: dict) -> tuple:
-    service_range = _extract_service_range(service)
-    if service_range:
-        return (service_range[0].isoformat(), service_range[1].isoformat())
-    school_year = service.get("anno_scolastico")
-    return (school_year,) if school_year else tuple()
-
-
-def _service_signature(service: dict) -> tuple:
-    return _service_identity(service) + (
-        normalize_text_for_match(service.get("qualifica_professionale")),
-        normalize_text_for_match(service.get("tipo_servizio")),
-    )
-
-
-def _services_loosely_match(left_service: dict, right_service: dict) -> bool:
-    left_identity = _service_identity(left_service)
-    right_identity = _service_identity(right_service)
-    return bool(left_identity and right_identity and left_identity == right_identity)
-
-
-def _service_sort_key(service: dict) -> tuple:
-    service_range = _extract_service_range(service)
-    if service_range:
-        return service_range[0], service_range[1]
-    return date.max, date.max
-
-
-def _merge_service_lists(
-    primary_services: list[dict],
-    secondary_services: list[dict],
-    *,
-    merge_missing_fields: bool = False,
-) -> list[dict]:
-    merged = []
-    index_by_signature = {}
-
-    for source in (primary_services or []) + (secondary_services or []):
-        if not isinstance(source, dict):
-            continue
-
-        signature = _service_signature(source)
-        match_idx = index_by_signature.get(signature)
-        if match_idx is None:
-            for idx, current in enumerate(merged):
-                if _services_loosely_match(current, source):
-                    match_idx = idx
-                    break
-
-        if match_idx is not None:
-            if merge_missing_fields:
-                current = merged[match_idx]
-                for key, value in source.items():
-                    if key == "assenze":
-                        continue
-                    if current.get(key) in (None, "", []) and value not in (None, "", []):
-                        current[key] = value
-                index_by_signature[_service_signature(current)] = match_idx
-            continue
-
-        index_by_signature[signature] = len(merged)
-        merged.append(dict(source))
-
-    return sorted(merged, key=_service_sort_key)
-
-
-def _merge_absence_lists(
-    primary_absences: list[dict],
-    secondary_absences: list[dict],
-    *,
-    prefer_primary: bool = False,
-    merge_missing_fields: bool = False,
-) -> list[dict]:
-    merged = []
-    index_by_signature = {}
-
-    for source in (primary_absences or []) + (secondary_absences or []):
-        if not isinstance(source, dict):
-            continue
-
-        signature = _absence_signature(source)
-        match_idx = index_by_signature.get(signature)
-        if match_idx is None:
-            source_identity = _absence_identity(source)
-            for idx, current in enumerate(merged):
-                if _absence_identity(current) == source_identity:
-                    match_idx = idx
-                    break
-
-        if match_idx is not None:
-            if merge_missing_fields:
-                current = merged[match_idx]
-                for key, value in source.items():
-                    if key in {"tipologia_assenza", "tipo_assenza"}:
-                        if prefer_primary:
-                            if current.get(key) in (None, "", []) and value not in (None, "", []):
-                                current[key] = value
-                        else:
-                            preferred = _choose_preferred_absence_description(current.get(key), value)
-                            if preferred:
-                                current[key] = preferred
-                        continue
-                    if current.get(key) in (None, "", []) and value not in (None, "", []):
-                        current[key] = value
-                index_by_signature[_absence_signature(current)] = match_idx
-            continue
-
-        index_by_signature[signature] = len(merged)
-        merged.append(dict(source))
-
-    return merged
-
-
-def _extract_absences_from_tables(tables_by_page: list[dict], assenze_schema: dict) -> list[dict]:
-    extracted_absences = []
-    previous_table_was_absence = False
-
-    for page_number, table_index, rows in _iter_tables_in_page_order(tables_by_page):
-        has_header = _table_has_absence_header(rows)
-        candidate_rows = [row for row in rows if _looks_like_absence_row(row, table_is_absence=(has_header or previous_table_was_absence))]
-        table_is_absence = bool(has_header or (previous_table_was_absence and candidate_rows))
-
-        if not table_is_absence:
-            previous_table_was_absence = False
-            continue
-
-        previous_table_was_absence = True
-        for row in candidate_rows:
-            absence_item = _build_absence_item_for_schema(assenze_schema, row)
-            if absence_item:
-                extracted_absences.append(absence_item)
-
-        logger.info(
-            "service_table_absence_scan page=%s table=%s detected_rows=%s",
-            page_number,
-            table_index,
-            len(candidate_rows),
-        )
-
-    _log_service_debug_snapshot(
-        "table_absences_extracted",
-        absences=extracted_absences,
-        count=len(extracted_absences),
-    )
-    return extracted_absences
-
-
-def _assign_absences_to_services(services: list[dict], absences: list[dict]) -> list[dict]:
-    assigned_services = []
-    for service in services:
-        if not isinstance(service, dict):
-            continue
-        service_copy = dict(service)
-        service_copy["assenze"] = []
-        assigned_services.append(service_copy)
-
-    if not assigned_services or not absences:
-        return assigned_services
-
-    for absence in absences:
-        if not isinstance(absence, dict):
-            continue
-
-        absence_range = _extract_absence_range(absence)
-        if not absence_range:
-            logger.info(
-                "service_absence_unassigned reason=missing_absence_range absence=%s",
-                json.dumps(absence, ensure_ascii=False),
-            )
-            continue
-
-        candidate_matches = []
-        for idx, service in enumerate(assigned_services):
-            service_range = _extract_service_range(service)
-            if not service_range:
-                continue
-            if _range_contains(service_range, absence_range):
-                candidate_matches.append((idx, service_range))
-
-        if not candidate_matches:
-            logger.info(
-                "service_absence_unassigned reason=no_service_contains_absence start=%s end=%s absence=%s",
-                absence_range[0],
-                absence_range[1],
-                json.dumps(absence, ensure_ascii=False),
-            )
-            continue
-
-        best_idx, _ = max(
-            candidate_matches,
-            key=lambda item: (item[1][0].toordinal(), -((item[1][1] - item[1][0]).days)),
-        )
-        assigned_services[best_idx]["assenze"].append(absence)
-
-    for service in assigned_services:
-        service["assenze"] = sorted(
-            service.get("assenze") or [],
-            key=lambda absence: (
-                (_extract_absence_range(absence) or (date.max, date.max))[0],
-                (_extract_absence_range(absence) or (date.max, date.max))[1],
-            ),
-        )
-
-    return assigned_services
-
-
-def _merge_table_absences_into_raw_extracted(
-    schema_section: dict,
-    extraction_view: dict,
-    raw_extracted: dict,
-) -> dict:
-    campi = schema_section.get("campi", {})
-    servizi_node = campi.get("servizi") or {}
-    servizi_schema = servizi_node.get("item_struttura", {})
-    assenze_schema = ((servizi_schema.get("assenze") or {}).get("item_struttura") or {})
-    service_fields_schema = {k: v for k, v in servizi_schema.items() if k != "assenze"}
-
-    normalized_services = _normalize_list_against_item_schema(
-        service_fields_schema,
-        (raw_extracted or {}).get("servizi"),
-    )
-    fallback_services = _normalize_list_against_item_schema(
-        service_fields_schema,
-        _extract_services_with_support(
-            extraction_view.get("tablesByPage", []),
-            extraction_view.get("formsByPage", []),
-        ),
-    )
-    normalized_services = _merge_service_lists(normalized_services, fallback_services)
-    if not normalized_services:
-        return raw_extracted or {}
-
-    table_absences = _normalize_list_against_item_schema(
-        assenze_schema,
-        _extract_absences_from_tables(extraction_view.get("tablesByPage", []), assenze_schema),
-    )
-
-    merged = dict(raw_extracted or {})
-    merged["servizi"] = _assign_absences_to_services(normalized_services, table_absences)
-    _log_service_debug_snapshot(
-        "table_fallback_merge",
-        mergeLogicVersion=SERVICE_MERGE_LOGIC_VERSION,
-        genericRawServices=(raw_extracted or {}).get("servizi"),
-        normalizedServices=normalized_services,
-        tableFallbackServices=fallback_services,
-        tableAbsences=table_absences,
-        finalServices=merged.get("servizi"),
-    )
-    logger.info(
-        "service_table_absence_fallback_done services=%s flat_absences=%s assigned_absences=%s",
-        len(normalized_services),
-        len(table_absences),
-        sum(len(service.get("assenze") or []) for service in merged.get("servizi") or []),
-    )
-    return merged
-
-
-def _merge_specialized_service_extraction(
-    model_id: str,
-    schema_section_name: str,
-    schema_section: dict,
-    extraction_view: dict,
-    raw_extracted: dict,
-) -> dict:
-    campi = schema_section.get("campi", {})
-    anagrafica_schema = campi.get("anagrafica", {})
-    servizi_node = campi.get("servizi") or {}
-    servizi_schema = servizi_node.get("item_struttura", {})
-    assenze_schema = ((servizi_schema.get("assenze") or {}).get("item_struttura") or {})
-    service_fields_schema = {k: v for k, v in servizi_schema.items() if k != "assenze"}
-
-    specialized_raw = extract_service_components_with_model(
-        model_id=model_id,
-        schema_section_name=schema_section_name,
-        schema_section=schema_section,
-        extraction_view=extraction_view,
-    )
-
-    normalized_anagrafica = normalize_against_schema(
-        anagrafica_schema,
-        specialized_raw.get("anagrafica"),
-    )
-    llm_normalized_services = _normalize_list_against_item_schema(
-        service_fields_schema,
-        specialized_raw.get("servizi"),
-    )
-    fallback_services = _normalize_list_against_item_schema(
-        service_fields_schema,
-        _extract_services_with_support(
-            extraction_view.get("tablesByPage", []),
-            extraction_view.get("formsByPage", []),
-        ),
-    )
-    merged_services = _merge_service_lists(llm_normalized_services, fallback_services)
-    llm_normalized_absences = _normalize_list_against_item_schema(
-        assenze_schema,
-        specialized_raw.get("assenze"),
-    )
-    table_absences = _normalize_list_against_item_schema(
-        assenze_schema,
-        _extract_absences_from_tables(extraction_view.get("tablesByPage", []), assenze_schema),
-    )
-    merged_absences = _merge_absence_lists(
-        llm_normalized_absences,
-        table_absences,
-        prefer_primary=True,
-    )
-
-    merged = dict(raw_extracted or {})
-    if not _is_effectively_empty(normalized_anagrafica):
-        merged["anagrafica"] = normalized_anagrafica
-
-    if merged_services:
-        merged["servizi"] = _assign_absences_to_services(merged_services, merged_absences)
-
-    _log_service_debug_snapshot(
-        "specialized_merge",
-        mergeLogicVersion=SERVICE_MERGE_LOGIC_VERSION,
-        genericRawServices=(raw_extracted or {}).get("servizi"),
-        genericRawAnagrafica=(raw_extracted or {}).get("anagrafica"),
-        specializedNormalizedAnagrafica=normalized_anagrafica,
-        specializedNormalizedServices=llm_normalized_services,
-        tableFallbackServices=fallback_services,
-        mergedServices=merged_services,
-        llmNormalizedAbsences=llm_normalized_absences,
-        tableFallbackAbsences=table_absences,
-        mergedAbsences=merged_absences,
-        finalServices=merged.get("servizi"),
-    )
-    logger.info(
-        "service_specialized_merge_done schema_section=%s services=%s flat_absences=%s assigned_absences=%s",
-        schema_section_name,
-        len(merged_services),
-        len(merged_absences),
-        sum(len(service.get("assenze") or []) for service in merged.get("servizi") or []),
-    )
-    return merged
+    return extraction_section, removed_fields
 
 
 # ---------------------------------------------------------------------------
@@ -2398,150 +1234,6 @@ def _apply_equivalent_date_fields(normalized_value: Any) -> Any:
 
     return normalized_value
 
-
-def _parse_date_to_date(value: Any):
-    if not isinstance(value, str):
-        return None
-
-    normalized_value = _try_parse_date_string(value, italian_format=True) or _try_parse_date_string(value, italian_format=False)
-    candidate = (normalized_value or value).strip()
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(candidate, fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
-def _extract_range(record: dict, candidate_pairs: list[tuple[str, str]]):
-    for start_field, end_field in candidate_pairs:
-        start_value = _parse_date_to_date(record.get(start_field))
-        end_value = _parse_date_to_date(record.get(end_field))
-        if start_value and end_value:
-            return start_value, end_value
-    return None
-
-
-def _school_year_range_from_value(value: Any):
-    if not isinstance(value, str):
-        return None
-
-    match = re.fullmatch(r"\s*(\d{4})\s*[-/]\s*(\d{4})\s*", value)
-    if not match:
-        return None
-
-    year_start, year_end = map(int, match.groups())
-    if year_end != year_start + 1:
-        return None
-    return date(year_start, 9, 1), date(year_end, 8, 31)
-
-
-def _extract_flexible_range(record: dict, candidate_pairs: list[tuple[str, str]]):
-    for start_field, end_field in candidate_pairs:
-        start_value = _parse_date_to_date(record.get(start_field))
-        end_value = _parse_date_to_date(record.get(end_field))
-        if start_value and end_value:
-            return start_value, end_value
-        if start_value and not end_value:
-            return start_value, start_value
-        if end_value and not start_value:
-            return end_value, end_value
-
-    school_year_range = _school_year_range_from_value(record.get("anno_scolastico"))
-    if school_year_range:
-        return school_year_range
-    return None
-
-
-def _extract_service_range(record: dict):
-    return _extract_flexible_range(
-        record,
-        [
-            ("periodo_retribuito_inizio", "periodo_retribuito_fine"),
-            ("data_inizio", "data_fine"),
-            ("periodo_riferimento_inizio", "periodo_riferimento_fine"),
-        ],
-    )
-
-
-def _extract_absence_range(record: dict):
-    return _extract_flexible_range(
-        record,
-        [
-            ("periodo_fruizione_inizio", "periodo_fruizione_fine"),
-            ("data_inizio_assenza", "data_fine_assenza"),
-        ],
-    )
-
-
-def _range_contains(container_range, contained_range) -> bool:
-    if not container_range or not contained_range:
-        return True
-    container_start, container_end = container_range
-    contained_start, contained_end = contained_range
-    return container_start <= contained_start and contained_end <= container_end
-
-
-def _ranges_overlap(left_range, right_range) -> bool:
-    if not left_range or not right_range:
-        return True
-    left_start, left_end = left_range
-    right_start, right_end = right_range
-    return left_start <= right_end and right_start <= left_end
-
-
-def _filter_service_absences(normalized_value: Any) -> Any:
-    if isinstance(normalized_value, list):
-        return [_filter_service_absences(item) for item in normalized_value]
-
-    if not isinstance(normalized_value, dict):
-        return normalized_value
-
-    for key, value in list(normalized_value.items()):
-        normalized_value[key] = _filter_service_absences(value)
-
-    services = normalized_value.get("servizi")
-    if not isinstance(services, list):
-        return normalized_value
-
-    for service in services:
-        if not isinstance(service, dict):
-            continue
-
-        absences = service.get("assenze")
-        if not isinstance(absences, list) or not absences:
-            continue
-
-        service_range = _extract_service_range(service)
-        filtered_absences = []
-        for absence in absences:
-            if not isinstance(absence, dict):
-                continue
-
-            description = absence.get("tipologia_assenza") or absence.get("tipo_assenza")
-            if description and not _is_probable_absence_description(description):
-                logger.info(
-                    "service_absence_discarded reason=non_absence_description absence=%s",
-                    json.dumps(absence, ensure_ascii=False),
-                )
-                continue
-
-            absence_range = _extract_absence_range(absence)
-            if absence_range and service_range and not _range_contains(service_range, absence_range):
-                continue
-            filtered_absences.append(absence)
-
-        deduplicated_absences = _merge_absence_lists(filtered_absences, [])
-        service["assenze"] = sorted(
-            deduplicated_absences,
-            key=lambda absence: (
-                (_extract_absence_range(absence) or (date.max, date.max))[0],
-                (_extract_absence_range(absence) or (date.max, date.max))[1],
-            ),
-        )
-
-    return normalized_value
-
 def _is_effectively_empty(value: Any) -> bool:
     if value is None:
         return True
@@ -2575,7 +1267,7 @@ def normalize_against_schema(schema_node: dict, raw_value: Any) -> Any:
     for field_name, field_schema in schema_node.items():
         if isinstance(field_schema, dict):
             normalized[field_name] = normalize_against_schema(field_schema, source.get(field_name))
-    return _filter_service_absences(_apply_equivalent_date_fields(normalized))
+    return _apply_equivalent_date_fields(normalized)
 
 
 SCHOOL_ORDER_SEQUENCE = ("infanzia", "primaria", "secondaria")
@@ -2798,6 +1490,8 @@ def _check_and_trigger_servizi_ingestor(
     just_written_tipo_documento: str,
     updated_metadata_state: dict,
     document_items: list[dict],
+    just_written_item: dict | None = None,
+    bucket: str | None = None,
 ) -> bool:
     """
     Valuta se le precondizioni per l'ingestion dei servizi sono soddisfatte
@@ -2879,13 +1573,27 @@ def _check_and_trigger_servizi_ingestor(
             exc,
         )
 
+    source_document_item = None
+    if (
+        isinstance(just_written_item, dict)
+        and just_written_item.get("tipo_documento") == fonte
+    ):
+        source_document_item = just_written_item
+    else:
+        present_service_docs.sort(key=lambda item: item.get("extractedAt") or "", reverse=True)
+        source_document_item = present_service_docs[0]
+
     # Tutte le precondizioni soddisfatte: invocazione asincrona.
     payload = {
         "id_pratica": id_pratica,
         "fonte_documento": fonte,
-        # Passiamo il trigger_source per tracciabilità nei log dell'ingestor.
         "trigger_source": "entity_extractor",
         "triggered_by_tipo_documento": just_written_tipo_documento,
+        "bucket": bucket,
+        "source_documento_sk": source_document_item.get("SK") if source_document_item else None,
+        "source_classified_key": source_document_item.get("sourceClassifiedKey") if source_document_item else None,
+        "source_clean_key": source_document_item.get("sourceCleanKey") if source_document_item else None,
+        "categoria_personale": updated_metadata_state.get("categoria_personale"),
     }
 
     try:
@@ -2930,27 +1638,23 @@ def _check_and_trigger_checklist_sfn(
     documenti_attesi: int,
 ) -> bool:
     """
-    Invoca l'orchestrator Lambda in modo asincrono quando tutti i documenti
+    Avvia la Step Functions dei controlli checklist quando tutti i documenti
     caricati per la pratica sono stati estratti.
 
-    L'orchestrator si occupa di caricare lo schema da S3, filtrare i controlli
-    attivi e costruire il payload completo (con l'array 'controlli') prima di
-    avviare la Step Functions.
-
     Precondizioni:
-      1. Variabile d'ambiente CHECKLIST_ORCHESTRATOR_FUNCTION_NAME configurata.
+      1. Variabile d'ambiente CHECKLIST_SFN_ARN configurata.
       2. documenti_attesi > 0 e len(document_items) >= documenti_attesi
          (tutti i documenti caricati dal FE sono stati estratti).
       3. categoria_personale nota (serve per scegliere la checklist corretta).
-      4. L'orchestrator non è già stato triggerato (flag checklist_sfn_triggered
+      4. La Step Functions non è già stata avviata (flag checklist_sfn_triggered
          salvato su DynamoDB per idempotenza).
 
-    Restituisce True se il trigger è stato inviato, False altrimenti.
+    Restituisce True se l'esecuzione è stata avviata, False altrimenti.
     """
-    orchestrator_function_name = os.environ.get("CHECKLIST_ORCHESTRATOR_FUNCTION_NAME")
-    if not orchestrator_function_name:
+    sfn_arn = os.environ.get("CHECKLIST_SFN_ARN")
+    if not sfn_arn:
         logger.info(
-            "checklist_sfn_trigger_skipped id_pratica=%s reason=CHECKLIST_ORCHESTRATOR_FUNCTION_NAME_not_set",
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=CHECKLIST_SFN_ARN_not_set",
             id_pratica,
         )
         return False
@@ -2982,12 +1686,8 @@ def _check_and_trigger_checklist_sfn(
         )
         return False
 
-    # Precondizione 4: idempotenza — non reinvocare se già triggerato.
-    pratiche_table_name = (
-        os.environ.get("PRATICHE_TABLE")
-        or os.environ.get("DYNAMO_TABLE")
-        or os.environ.get("DYNAMODB_TABLE")
-    )
+    # Precondizione 4: idempotenza — non riavviare se già triggerato.
+    pratiche_table_name = os.environ.get("PRATICHE_TABLE") or os.environ.get("DYNAMO_TABLE")
     if pratiche_table_name:
         try:
             tbl = dynamodb.Table(pratiche_table_name)
@@ -3005,24 +1705,38 @@ def _check_and_trigger_checklist_sfn(
                 exc,
             )
 
-    # Tutte le precondizioni soddisfatte: invocazione asincrona dell'orchestrator.
+    # Tutte le precondizioni soddisfatte: avvio asincrono della Step Functions.
+    import hashlib
+    execution_name = (
+        f"{id_pratica[:40]}-"
+        + hashlib.md5(id_pratica.encode()).hexdigest()[:8]  # noqa: S324
+    )
+
     payload = {
         "id_pratica":     id_pratica,
         "tipo_checklist": tipo_checklist,
     }
 
     try:
-        lambda_client.invoke(
-            FunctionName=orchestrator_function_name,
-            InvocationType="Event",  # asincrono: fire-and-forget
-            Payload=json.dumps(payload, ensure_ascii=False).encode(),
+        sfn_client.start_execution(
+            stateMachineArn=sfn_arn,
+            name=execution_name,
+            input=json.dumps(payload, ensure_ascii=False),
         )
         logger.info(
-            "checklist_sfn_trigger_sent id_pratica=%s tipo_checklist=%s orchestrator=%s",
+            "checklist_sfn_trigger_sent id_pratica=%s tipo_checklist=%s execution_name=%s sfn_arn=%s",
             id_pratica,
             tipo_checklist,
-            orchestrator_function_name,
+            execution_name,
+            sfn_arn,
         )
+    except sfn_client.exceptions.ExecutionAlreadyExists:
+        logger.info(
+            "checklist_sfn_trigger_skipped id_pratica=%s reason=execution_already_exists execution_name=%s",
+            id_pratica,
+            execution_name,
+        )
+        return False
     except ClientError as exc:
         logger.error(
             "checklist_sfn_trigger_failed id_pratica=%s error=%s",
@@ -3037,10 +1751,10 @@ def _check_and_trigger_checklist_sfn(
             tbl = dynamodb.Table(pratiche_table_name)
             tbl.update_item(
                 Key={"PK": f"PRATICA#{id_pratica}", "SK": "METADATA"},
-                UpdateExpression="SET checklist_sfn_triggered = :v, checklist_orchestrator = :o",
+                UpdateExpression="SET checklist_sfn_triggered = :v, checklist_sfn_execution = :e",
                 ExpressionAttributeValues={
                     ":v": True,
-                    ":o": orchestrator_function_name,
+                    ":e": execution_name,
                 },
             )
         except Exception as exc:  # noqa: BLE001
@@ -3233,61 +1947,30 @@ def lambda_handler(event: dict, context) -> dict:
             len(extraction_view["tablesByPage"]),
         )
 
-        if _is_service_document_section(schema_section):
-            raw_extracted = {}
-            try:
-                logger.info("entity_extractor_service_specialization_start key=%s schema_section=%s", classified_key, schema_section_name)
-                raw_extracted = _merge_specialized_service_extraction(
-                    model_id=model_id,
-                    schema_section_name=schema_section_name,
-                    schema_section=schema_section,
-                    extraction_view=extraction_view,
-                    raw_extracted={},
-                )
-                logger.info("entity_extractor_service_specialization_done key=%s schema_section=%s", classified_key, schema_section_name)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "entity_extractor_service_specialization_failed key=%s schema_section=%s error=%s",
-                    classified_key,
-                    schema_section_name,
-                    exc,
-                )
-                try:
-                    raw_extracted = _merge_table_absences_into_raw_extracted(
-                        schema_section=schema_section,
-                        extraction_view=extraction_view,
-                        raw_extracted=raw_extracted,
-                    )
-                    logger.info(
-                        "entity_extractor_service_table_fallback_done key=%s schema_section=%s",
-                        classified_key,
-                        schema_section_name,
-                    )
-                except Exception as fallback_exc:  # noqa: BLE001
-                    logger.warning(
-                        "entity_extractor_service_table_fallback_failed key=%s schema_section=%s error=%s",
-                        classified_key,
-                        schema_section_name,
-                        fallback_exc,
-                    )
-        else:
-            logger.info("entity_extractor_bedrock_call_start key=%s model_id=%s", classified_key, model_id)
-            raw_extracted = extract_entities_with_model(model_id, schema_section_name, schema_section, extraction_view)
-            logger.info("entity_extractor_bedrock_call_done key=%s", classified_key)
+        extraction_schema_section, delegated_fields = schema_section_for_entity_extraction(schema_section)
+        if delegated_fields:
+            logger.info(
+                "entity_extractor_service_fields_delegated key=%s schema_section=%s fields=%s owner=lambda_function_services",
+                classified_key,
+                schema_section_name,
+                sorted(delegated_fields),
+            )
 
-        extracted_fields = normalize_against_schema(schema_section.get("campi", {}), raw_extracted)
-        extracted_fields = _override_decreto_preruolo_from_tables(
-            schema_section=schema_section,
-            extraction_view=extraction_view,
-            extracted_fields=extracted_fields,
+        logger.info("entity_extractor_bedrock_call_start key=%s model_id=%s", classified_key, model_id)
+        raw_extracted = extract_entities_with_model(
+            model_id,
+            schema_section_name,
+            extraction_schema_section,
+            extraction_view,
         )
-        if _is_service_document_section(schema_section):
-            _log_service_debug_snapshot(
-                "normalized_fields",
-                mergeLogicVersion=SERVICE_MERGE_LOGIC_VERSION,
-                key=classified_key,
-                schemaSection=schema_section_name,
-                extractedFields=extracted_fields,
+        logger.info("entity_extractor_bedrock_call_done key=%s", classified_key)
+
+        extracted_fields = normalize_against_schema(extraction_schema_section.get("campi", {}), raw_extracted)
+        if not _is_service_document_section(schema_section):
+            extracted_fields = _override_decreto_preruolo_from_tables(
+                schema_section=schema_section,
+                extraction_view=extraction_view,
+                extracted_fields=extracted_fields,
             )
         logger.info("entity_extractor_normalized key=%s schema_section=%s", classified_key, schema_section_name)
 
@@ -3302,6 +1985,9 @@ def lambda_handler(event: dict, context) -> dict:
             clean_document=clean_document,
             model_id=model_id,
         )
+        if _is_service_document_section(schema_section):
+            item["serviceExtractionOwner"] = "lambda_function_services"
+            item["serviceExtractionStatus"] = "PENDING"
         table.put_item(Item=item)
         logger.info("entity_extractor_dynamo_write_done pk=%s sk=%s", item["PK"], item["SK"])
 
@@ -3324,6 +2010,8 @@ def lambda_handler(event: dict, context) -> dict:
             just_written_tipo_documento=just_written_tipo_documento,
             updated_metadata_state=metadata_state,
             document_items=document_items_fresh,
+            just_written_item=item,
+            bucket=bucket,
         )
         documenti_attesi = int((pratica_metadata or {}).get("documenti_attesi", 0))
         checklist_sfn_triggered = _check_and_trigger_checklist_sfn(

@@ -20,17 +20,13 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-ALLOWED_TIPI = {"controlli", "stipendi"}
-
-
-def build_practice_output_prefix(prefix, tipo_servizio=None, id_pratica=None):
+def build_practice_output_prefix(prefix, id_pratica=None, tipo_flusso=None):
     normalized_prefix = prefix.strip("/")
-    parts = ["output", normalized_prefix]
-    if tipo_servizio:
-        parts.append(tipo_servizio)
+    if id_pratica and tipo_flusso:
+        return f"output/{normalized_prefix}/{tipo_flusso}/{id_pratica}"
     if id_pratica:
-        parts.append(id_pratica)
-    return "/".join(parts)
+        return f"output/{normalized_prefix}/{id_pratica}"
+    return f"output/{normalized_prefix}"
 
 
 VALID_DOCUMENT_TYPES = [
@@ -200,6 +196,21 @@ Schema di output:
 def parse_clean_key(key, clean_prefix):
     parts = key.split("/")
 
+    if (
+        len(parts) == 3
+        and parts[0] == "output"
+        and parts[1] == clean_prefix
+        and parts[2].lower().endswith(".json")
+    ):
+        filename = parts[2]
+        base_name = filename[:-5] if filename.lower().endswith(".json") else filename
+        return {
+            "filename": filename,
+            "base_name": base_name,
+            "id_pratica": None,
+            "tipo_flusso": None,
+        }
+
     if len(parts) == 2 and parts[0] == clean_prefix and parts[1].lower().endswith(".json"):
         filename = parts[1]
         base_name = filename[:-5] if filename.lower().endswith(".json") else filename
@@ -207,6 +218,7 @@ def parse_clean_key(key, clean_prefix):
             "filename": filename,
             "base_name": base_name,
             "id_pratica": None,
+            "tipo_flusso": None,
         }
 
     if (
@@ -222,9 +234,24 @@ def parse_clean_key(key, clean_prefix):
             "filename": filename,
             "base_name": base_name,
             "id_pratica": parts[1],
+            "tipo_flusso": None,
         }
 
-    # phase_first: output/{clean_prefix}/{id_pratica}/{filename}
+    if (
+        len(parts) == 5
+        and parts[0] == "output"
+        and parts[1] == clean_prefix
+        and parts[4].lower().endswith(".json")
+    ):
+        filename = parts[4]
+        base_name = filename[:-5] if filename.lower().endswith(".json") else filename
+        return {
+            "filename": filename,
+            "base_name": base_name,
+            "id_pratica": parts[3],
+            "tipo_flusso": parts[2],
+        }
+
     if (
         len(parts) == 4
         and parts[0] == "output"
@@ -236,32 +263,15 @@ def parse_clean_key(key, clean_prefix):
         return {
             "filename": filename,
             "base_name": base_name,
-            "tipo_servizio": None,
             "id_pratica": parts[2],
-        }
-
-    # practice_with_tipo: output/{clean_prefix}/{tipo_servizio}/{id_pratica}/{filename}
-    if (
-        len(parts) == 5
-        and parts[0] == "output"
-        and parts[1] == clean_prefix
-        and parts[2] in ALLOWED_TIPI
-        and parts[4].lower().endswith(".json")
-    ):
-        filename = parts[4]
-        base_name = filename[:-5] if filename.lower().endswith(".json") else filename
-        return {
-            "filename": filename,
-            "base_name": base_name,
-            "tipo_servizio": parts[2],
-            "id_pratica": parts[3],
+            "tipo_flusso": None,
         }
 
     return None
 
 
-def build_output_key(classified_prefix, base_name, tipo_servizio=None, id_pratica=None):
-    scoped_prefix = build_practice_output_prefix(classified_prefix, tipo_servizio, id_pratica)
+def build_output_key(classified_prefix, base_name, id_pratica=None, tipo_flusso=None):
+    scoped_prefix = build_practice_output_prefix(classified_prefix, id_pratica, tipo_flusso)
     return f"{scoped_prefix}/{base_name}.classification.json"
 
 
@@ -484,8 +494,8 @@ def lambda_handler(event, context):
         output_key = build_output_key(
             classified_prefix,
             parsed["base_name"],
-            parsed.get("tipo_servizio"),
             parsed.get("id_pratica"),
+            parsed.get("tipo_flusso"),
         )
         existing_output = load_json_object(bucket, output_key)
         if existing_output and existing_output.get("sourceCleanKey") == key and existing_output.get("sourceCleanETag") == source_etag:
@@ -545,6 +555,8 @@ def lambda_handler(event, context):
             "sourceCleanKey": key,
             "sourceCleanETag": source_etag,
             "sourceFile": parsed["filename"],
+            "id_pratica": parsed.get("id_pratica"),
+            "tipo_flusso": parsed.get("tipo_flusso"),
             "documentType": classification["documentType"],
             "confidence": classification["confidence"],
             "discard": classification["discard"],
@@ -567,8 +579,6 @@ def lambda_handler(event, context):
                 "sourceKey": key,
                 "outputKey": output_key,
                 "documentType": output["documentType"],
-                "tipoServizio": parsed.get("tipo_servizio"),
-                "idPratica": parsed.get("id_pratica"),
             }
         )
 
