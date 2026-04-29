@@ -47,7 +47,7 @@ os.environ.setdefault("TEMPLATE_BUCKET", "fake-bucket")
 
 # --- import handler ---
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from handler import _build_placeholder_map, fill_excel  # noqa: E402
+from handler import _build_placeholder_map, fill_excel, _normalizza_classe_stipendiale  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Dati simulati (struttura DynamoDB item decreto_ricostruzione)
@@ -75,8 +75,6 @@ FAKE_DECRETO = {
         "data_decorrenza_economica": "01/09/2023",
         "data_assunzione_in_servizio": "01/09/2023",
         "data_conferma_in_ruolo": "01/09/2023",
-        "classe_stipendiale": "00",
-      #  "data_scadenza_stipendi": "01/09/2027",
     },
 
     # Intestazione decreto
@@ -88,7 +86,8 @@ FAKE_DECRETO = {
 
     # Art. 2 — variazione stipendi
     "articolo_2": {
-        "classe_stipendiale": "00",
+        # Classe stipendiale come TESTO (esempio alternativo: "terza posizione stipendiale")
+        "classe_stipendiale": "terza posizione",
        # "data_scadenza": "01/09/2027",
         "periodo_totale_fini_giuridici_economici": {
             "anni": 5,
@@ -102,14 +101,19 @@ FAKE_DECRETO = {
         },
     },
 
-    # Art. 4 — assegno ad personam (omettere o lasciare {} se assente)
-    "articolo_4": {
-        "codice_assegno": "120/SCU",
-        "importo_assegno_ad_personam": "523,45",
-        "numero_mensilita": "13",
-        "data_decorrenza": "01/09/2012",
-        "data_scadenza": "01/01/9999",
-    },
+    # Art. 4 — assegni ad personam (può essere dict singolo o lista di assegni)
+    "articolo_4": [
+        {
+            "codice_assegno": "120/SCU",
+            "importo_assegno_ad_personam": "523,45",
+            "numero_mensilita": "13"
+        },
+        {
+            "codice_assegno": "121/IND",
+            "importo_assegno_ad_personam": "350,00",
+            "numero_mensilita": "12"
+        },
+    ],
 
     # Visti (dict singolo o lista)
     "visti": {
@@ -149,7 +153,80 @@ TEMPLATE_PATH = pathlib.Path(__file__).parents[2] / "documenti" / "RTS_Prospetto
 OUTPUT_PATH = pathlib.Path(__file__).parent / "prospetto_test.xlsx"
 
 
+def test_normalizza_classe_stipendiale():
+    """Test della funzione di normalizzazione classe stipendiale"""
+    print("\n" + "="*70)
+    print("TEST: Normalizzazione classe stipendiale")
+    print("="*70)
+    
+    test_cases = [
+        # (input, expected_output, description)
+        ("prima posizione stipendiale", "00", "Prima posizione testuale"),
+        ("Prima Posizione Stipendiale", "00", "Prima posizione maiuscole"),
+        ("PRIMA POSIZIONE", "00", "Prima posizione abbreviato"),
+        ("1a posizione stipendiale", "00", "Prima posizione numerata"),
+        ("1° posizione stipendiale", "00", "Prima posizione con simbolo"),
+        ("i posizione stipendiale", "00", "Prima posizione romana"),
+        
+        ("seconda posizione stipendiale", "09", "Seconda posizione testuale"),
+        ("2a posizione stipendiale", "09", "Seconda posizione numerata"),
+        ("ii posizione stipendiale", "09", "Seconda posizione romana"),
+        
+        ("terza posizione stipendiale", "15", "Terza posizione testuale"),
+        ("3° posizione stipendiale", "15", "Terza posizione con simbolo"),
+        
+        ("quarta posizione stipendiale", "21", "Quarta posizione testuale"),
+        ("4a posizione", "21", "Quarta posizione abbreviato"),
+        
+        ("quinta posizione stipendiale", "28", "Quinta posizione testuale"),
+        ("5° posizione stipendiale", "28", "Quinta posizione con simbolo"),
+        
+        ("sesta posizione stipendiale", "35", "Sesta posizione testuale"),
+        ("6a posizione", "35", "Sesta posizione abbreviato"),
+        
+        # Valori numerici già normalizzati
+        ("0", "00", "Zero senza padding"),
+        ("00", "00", "Zero con padding"),
+        ("9", "09", "Nove senza padding"),
+        ("09", "09", "Nove con padding"),
+        ("15", "15", "Quindici"),
+        ("21", "21", "Ventuno"),
+        ("28", "28", "Ventotto"),
+        ("35", "35", "Trentacinque"),
+        
+        # Edge cases
+        ("", "00", "Stringa vuota"),
+        (None, "00", "None"),
+        ("posizione non valida", "00", "Testo non riconosciuto"),
+    ]
+    
+    failed = 0
+    passed = 0
+    
+    for input_val, expected, description in test_cases:
+        result = _normalizza_classe_stipendiale(input_val)
+        status = "✓ OK" if result == expected else "✗ FAIL"
+        
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+            
+        print(f"{status} | {description:40s} | Input: {str(input_val):35s} → Output: {result} (Expected: {expected})")
+    
+    print("-"*70)
+    print(f"Risultati: {passed} passati, {failed} falliti su {len(test_cases)} test")
+    print("="*70 + "\n")
+    
+    return failed == 0
+
+
 def main():
+    # Test della normalizzazione classe stipendiale
+    test_ok = test_normalizza_classe_stipendiale()
+    if not test_ok:
+        print("[ATTENZIONE] Alcuni test di normalizzazione classe stipendiale sono falliti!\n")
+    
     if not TEMPLATE_PATH.exists():
         print(f"[ERRORE] Template non trovato: {TEMPLATE_PATH}")
         sys.exit(1)

@@ -185,7 +185,7 @@ def calcola_righe_variazione_stipendi(
     Restituisce lista di dict con chiavi:
       dec_econ, dec_giur, scadenza, qualifica, classe, prox_var
     """
-    classe_norm = str(classe_stipendiale or "").strip().zfill(2)
+    classe_norm = _normalizza_classe_stipendiale(classe_stipendiale)
     if classe_norm not in _CLASSI_ORDINE:
         classe_norm = "00"
 
@@ -227,7 +227,7 @@ def calcola_data_scadenza_stipendi(
     classe_stipendiale: str | None,
 ) -> str:
     """Scadenza della classe corrente (ultima riga della variazione stipendi)."""
-    classe_norm = str(classe_stipendiale or "").strip().zfill(2)
+    classe_norm = _normalizza_classe_stipendiale(classe_stipendiale)
     soglia_anni = SCATTI_STIPENDIALI.get(classe_norm)
     if soglia_anni is None:
         return ""
@@ -238,6 +238,122 @@ def calcola_data_scadenza_stipendi(
 
     target = _add_period(eff_start, soglia_anni, 0, 0)
     return _next_1_settembre(target).strftime("%d/%m/%Y")
+
+
+# ---------------------------------------------------------------------------
+# Mapping classe stipendiale: testo → codice numerico
+# ---------------------------------------------------------------------------
+#
+# Converte descrizioni testuali della posizione stipendiale (estratte dall'LLM)
+# nei codici numerici corrispondenti (00, 09, 15, 21, 28, 35).
+#
+_CLASSE_STIPENDIALE_MAPPING: dict[str, str] = {
+    # Posizioni stipendiali
+    "prima posizione stipendiale": "00",
+    "prima posizione": "00",
+    "1a posizione stipendiale": "00",
+    "1a posizione": "00",
+    "1° posizione stipendiale": "00",
+    "1° posizione": "00",
+    "1^ posizione stipendiale": "00",
+    "1^ posizione": "00",
+    "i posizione stipendiale": "00",
+    "i posizione": "00",
+    
+    "seconda posizione stipendiale": "09",
+    "seconda posizione": "09",
+    "2a posizione stipendiale": "09",
+    "2a posizione": "09",
+    "2° posizione stipendiale": "09",
+    "2° posizione": "09",
+    "2^ posizione stipendiale": "09",
+    "2^ posizione": "09",
+    "ii posizione stipendiale": "09",
+    "ii posizione": "09",
+    
+    "terza posizione stipendiale": "15",
+    "terza posizione": "15",
+    "3a posizione stipendiale": "15",
+    "3a posizione": "15",
+    "3° posizione stipendiale": "15",
+    "3° posizione": "15",
+    "3^ posizione stipendiale": "15",
+    "3^ posizione": "15",
+    "iii posizione stipendiale": "15",
+    "iii posizione": "15",
+    
+    "quarta posizione stipendiale": "21",
+    "quarta posizione": "21",
+    "4a posizione stipendiale": "21",
+    "4a posizione": "21",
+    "4° posizione stipendiale": "21",
+    "4° posizione": "21",
+    "4^ posizione stipendiale": "21",
+    "4^ posizione": "21",
+    "iv posizione stipendiale": "21",
+    "iv posizione": "21",
+    
+    "quinta posizione stipendiale": "28",
+    "quinta posizione": "28",
+    "5a posizione stipendiale": "28",
+    "5a posizione": "28",
+    "5° posizione stipendiale": "28",
+    "5° posizione": "28",
+    "5^ posizione stipendiale": "28",
+    "5^ posizione": "28",
+    "v posizione stipendiale": "28",
+    "v posizione": "28",
+    
+    "sesta posizione stipendiale": "35",
+    "sesta posizione": "35",
+    "6a posizione stipendiale": "35",
+    "6a posizione": "35",
+    "6° posizione stipendiale": "35",
+    "6° posizione": "35",
+    "6^ posizione stipendiale": "35",
+    "6^ posizione": "35",
+    "vi posizione stipendiale": "35",
+    "vi posizione": "35",
+}
+
+
+def _normalizza_classe_stipendiale(classe: str | None) -> str:
+    """
+    Converte la descrizione testuale della classe stipendiale nel codice numerico.
+    Se il valore è già un codice numerico (00-35), lo restituisce normalizzato (con zero-padding).
+    Se il valore è testo (es. "prima posizione stipendiale"), lo converte al codice corrispondente.
+    Se nessun match, restituisce "00" come default.
+    
+    Args:
+        classe: Testo o codice della classe stipendiale
+        
+    Returns:
+        Codice numerico zero-padded (es. "00", "09", "15", "21", "28", "35")
+    """
+    if not classe:
+        return "00"
+    
+    classe_str = str(classe).strip()
+    
+    # Se è già un numero, normalizza con zero-padding
+    if classe_str.isdigit():
+        return classe_str.zfill(2)
+    
+    # Altrimenti cerca nel mapping testuale
+    classe_lower = classe_str.lower()
+    
+    # Cerca match esatto
+    if classe_lower in _CLASSE_STIPENDIALE_MAPPING:
+        return _CLASSE_STIPENDIALE_MAPPING[classe_lower]
+    
+    # Cerca match parziale (contiene una delle chiavi)
+    for key, code in _CLASSE_STIPENDIALE_MAPPING.items():
+        if key in classe_lower:
+            return code
+    
+    # Default: prima posizione
+    logger.warning("Classe stipendiale non riconosciuta: '%s', uso default '00'", classe_str)
+    return "00"
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +414,76 @@ def _noiipa_qualifica(qualifica: str | None) -> str:
         if all(kw in lower for kw in keywords):
             return code
     return qualifica  # nessun match: testo grezzo dal decreto
+
+
+def calcola_righe_variazione_assegni(
+    assegni_raw: list | dict,
+    data_decorrenza_economica: str | None,
+    data_scadenza_stipendi: str,
+) -> list[dict]:
+    """
+    Genera le righe per la variazione assegni secondo le regole:
+    - Per ogni assegno, crea DUE righe:
+      1. Cessazione: stesso codice assegno, data scadenza = data_scadenza_stipendi,
+         tipo operazione "Cessazione", Prox variazione automatica "No"
+      2. Inserimento: stesso codice assegno, data scadenza = data_scadenza_stipendi,
+         tipo operazione "Inserimento", Prox variazione automatica "Sì"
+    
+    La data_decorrenza viene impostata a data_decorrenza_economica.
+    La data_scadenza viene impostata a data_scadenza_stipendi per entrambe le righe.
+    
+    Restituisce lista di dict con chiavi:
+      data_decorrenza, codice_assegno, importo, mensilita, data_scadenza, tipo_op, prox_var
+    """
+    # Normalizza input assegni_raw in lista
+    if isinstance(assegni_raw, dict):
+        assegni_list = [assegni_raw]
+    elif isinstance(assegni_raw, list):
+        assegni_list = assegni_raw
+    else:
+        assegni_list = []
+    
+    if not assegni_list:
+        return []
+    
+    rows = []
+    for assegno in assegni_list:
+        if not isinstance(assegno, dict):
+            continue
+        
+        codice = _get(assegno, "codice_assegno") or _get(assegno, "codice") or ""
+        importo = _get(assegno, "importo_assegno_ad_personam") or _get(assegno, "importo") or ""
+        mensilita = _get(assegno, "numero_mensilita") or _get(assegno, "natura_importo") or ""
+        
+        # La data_decorrenza è sempre quella economica
+        data_dec = data_decorrenza_economica or ""
+        
+        # La data_scadenza è sempre quella della variazione stipendi e assegni
+        data_scad = data_scadenza_stipendi or ""
+        
+        # Prima riga: Cessazione
+        rows.append({
+            "data_decorrenza": data_dec,
+            "codice_assegno": codice,
+            "importo": importo,
+            "mensilita": mensilita,
+            "data_scadenza": data_scad,
+            "tipo_op": "Cessazione",
+            "prox_var": "No",
+        })
+        
+        # Seconda riga: Inserimento
+        rows.append({
+            "data_decorrenza": data_dec,
+            "codice_assegno": codice,
+            "importo": importo,
+            "mensilita": mensilita,
+            "data_scadenza": data_scad,
+            "tipo_op": "Inserimento",
+            "prox_var": "Sì",
+        })
+    
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -486,12 +672,14 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         _get(prof, "data_assunzione_in_servizio"),
         _get(art2, "data_decorrenza_economica"),
     )
-    classe_stipendiale = (
+    classe_stipendiale_raw = (
         _get(art2, "classe_stipendiale")
         or _get(prof, "classe_stipendiale")
         or _get(decreto, "classe_stipendiale")
         or ""
     )
+    # Normalizza la classe stipendiale (da testo a codice numerico)
+    classe_stipendiale = _normalizza_classe_stipendiale(classe_stipendiale_raw)
 
     # Preruolo riconosciuto ai soli fini economici (dalla tabella Art. 2 del decreto)
     preruolo_soli_fini_economici = (
@@ -582,6 +770,16 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         calcola_data_scadenza_stipendi(data_decorrenza_economica, preruolo_soli_fini_economici, classe_stipendiale)
         or _get(art2, "data_scadenza") or _get(prof, "data_scadenza_stipendi") or ""
     )
+    
+    # Righe variazione assegni: doppia riga (Cessazione + Inserimento) per ogni assegno
+    # NON recuperare date dai metadati del decreto (articolo_4)
+    # Usa sempre data_decorrenza_economica e data_scadenza_stipendi
+    assegni_raw_list = decreto.get("articolo_4") or []
+    righe_assegni = calcola_righe_variazione_assegni(
+        assegni_raw=assegni_raw_list,
+        data_decorrenza_economica=data_decorrenza_economica,
+        data_scadenza_stipendi=data_scadenza_stipendi,
+    )
 
     return {
         # Anagrafica
@@ -621,6 +819,7 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         "_assenze": assenze_raw,
         "_data_scadenza_assegno": data_scadenza_assegno,
         "_righe_stipendi": righe_stipendi,
+        "_righe_assegni": righe_assegni,
     }
 
 
@@ -671,6 +870,30 @@ def _build_b27(header_line: str, righe: list[dict]) -> str:
     return header_line + "\n" + "\n".join(data_lines)
 
 
+def _build_b34(header_line: str, righe: list[dict]) -> str:
+    """
+    Costruisce il contenuto testuale di B34 con header + righe di variazione assegni.
+
+    Formato dati (pipe-separated) allineato al template:
+      Data Decorrenza | Scadenza | Tipo operazione | Codice | Classe | Prox variazione automatica | Importo A.L. | Natura importo
+    """
+    data_lines = []
+    for r in righe:
+        # Allinea le colonne al formato del template Excel
+        line = (
+            f"{r['data_decorrenza']:<38}"
+            f"| {r['data_scadenza']:<40}"
+            f"| {r['tipo_op']:<34}"
+            f"| {r['codice_assegno']:<50}"
+            f"| {r.get('classe', ''):<44}"
+            f"| {r['prox_var']:<50}"
+            f"|{r['importo']:<60}"
+            f"|{r['mensilita']}"
+        )
+        data_lines.append(line)
+    return header_line + "\n" + "\n".join(data_lines)
+
+
 def fill_excel(template_bytes: bytes, mapping: dict) -> bytes:
     wb = load_workbook(io.BytesIO(template_bytes))
 
@@ -681,6 +904,7 @@ def fill_excel(template_bytes: bytes, mapping: dict) -> bytes:
     assenze = mapping.pop("_assenze", [])
     data_scadenza_assegno = mapping.pop("_data_scadenza_assegno", "")
     righe_stipendi = mapping.pop("_righe_stipendi", [])
+    righe_assegni = mapping.pop("_righe_assegni", [])
 
     # Mapping specifico per B34: [Data di scadenza] = scadenza assegno
     mapping_assegni = dict(mapping)
@@ -698,9 +922,15 @@ def fill_excel(template_bytes: bytes, mapping: dict) -> bytes:
             # Assenze (B4)
             new_value = _fill_assenze_in_cell(new_value, assenze)
 
-            # B34: usa scadenza assegno
+            # B34: gestisce righe multiple assegni
             if coord == "B34":
-                new_value = _replace_all(new_value, mapping_assegni)
+                if righe_assegni:
+                    lines = new_value.split("\n")
+                    header = lines[0]  # intestazione colonne
+                    new_value = _build_b34(header, righe_assegni)
+                else:
+                    # Fallback: usa il mapping con scadenza assegno
+                    new_value = _replace_all(new_value, mapping_assegni)
             else:
                 new_value = _replace_all(new_value, mapping)
 
