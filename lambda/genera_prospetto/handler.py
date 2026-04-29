@@ -65,7 +65,7 @@ import json
 import logging
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -122,6 +122,7 @@ def _parse_date_it(s: str | None) -> date | None:
 
 def _add_period(d: date, anni: int, mesi: int, giorni: int) -> date:
     """Somma (o sottrae se negativi) anni/mesi/giorni a una data."""
+    # Prima gestisci anni e mesi
     y = d.year + anni
     m = d.month + mesi
     while m > 12:
@@ -130,14 +131,18 @@ def _add_period(d: date, anni: int, mesi: int, giorni: int) -> date:
     while m < 1:
         m += 12
         y -= 1
-    # Clamp day al massimo del mese
+    
+    # Clamp day al massimo del mese (gestisce mesi con diversi giorni)
     max_day = calendar.monthrange(y, m)[1]
-    day = min(d.day + giorni, max_day)
+    day = min(d.day, max_day)
+    
+    # Crea la data con anno/mese corretti
     result = date(y, m, day)
-    # Gestisci giorni residui dopo il clamp
-    remaining = d.day + giorni - day
-    if remaining > 0:
-        result = _add_period(result, 0, 0, remaining)
+    
+    # Poi aggiungi/sottrai i giorni usando timedelta (gestisce automaticamente i cambi di mese)
+    if giorni != 0:
+        result = result + timedelta(days=giorni)
+    
     return result
 
 
@@ -691,7 +696,17 @@ def _build_placeholder_map(decreto: dict, metadata: dict, visto: dict | None = N
     # Normalizza la classe stipendiale (da testo a codice numerico)
     classe_stipendiale = _normalizza_classe_stipendiale(classe_stipendiale_raw)
 
-    # Preruolo riconosciuto ai soli fini economici (dalla tabella Art. 2 del decreto)
+    # Preruolo riconosciuto ai fini giuridici ed economici (per calcolo scadenza stipendi)
+    periodo_giuridico_economico = (
+        _get(art2, "periodo_totale_fini_giuridici_economici")
+        or _get(art2, "anzianita_fini_giuridici_economici")
+        or _get(decreto, "periodo_totale_fini_giuridici_economici")
+        or {}
+    )
+    if not isinstance(periodo_giuridico_economico, dict):
+        periodo_giuridico_economico = {}
+    
+    # Preruolo riconosciuto ai soli fini economici (per documentazione)
     preruolo_soli_fini_economici = (
         _get(art2, "periodo_totale_soli_fini_economici")
         or _get(decreto, "preruolo_soli_fini_economici")
@@ -701,11 +716,11 @@ def _build_placeholder_map(decreto: dict, metadata: dict, visto: dict | None = N
     if not isinstance(preruolo_soli_fini_economici, dict):
         preruolo_soli_fini_economici = {}
 
-    # Data scadenza stipendi: calcolata sulla base di decorrenza economica + preruolo
+    # Data scadenza stipendi: calcolata sulla base di decorrenza economica + anzianità giuridica-economica
     # Fallback al valore estratto dal decreto se disponibile
     data_scadenza_stipendi = calcola_data_scadenza_stipendi(
         data_decorrenza_economica=data_decorrenza_economica,
-        preruolo_soli_fini_economici=preruolo_soli_fini_economici,
+        preruolo_soli_fini_economici=periodo_giuridico_economico,
         classe_stipendiale=classe_stipendiale,
     ) or _get(art2, "data_scadenza") or _get(prof, "data_scadenza_stipendi") or ""
     data_conferma_in_ruolo = (
@@ -772,13 +787,13 @@ def _build_placeholder_map(decreto: dict, metadata: dict, visto: dict | None = N
     righe_stipendi = calcola_righe_variazione_stipendi(
         data_decorrenza_economica=data_decorrenza_economica,
         data_decorrenza_giuridica=data_decorrenza_giuridica,
-        preruolo_soli_fini_economici=preruolo_soli_fini_economici,
+        preruolo_soli_fini_economici=periodo_giuridico_economico,
         classe_stipendiale=classe_stipendiale,
         qualifica_noiipa=qualifica_noiipa,
     )
     # data_scadenza_stipendi = scadenza dell'ultima riga (classe corrente)
     data_scadenza_stipendi = righe_stipendi[-1]["scadenza"] if righe_stipendi else (
-        calcola_data_scadenza_stipendi(data_decorrenza_economica, preruolo_soli_fini_economici, classe_stipendiale)
+        calcola_data_scadenza_stipendi(data_decorrenza_economica, periodo_giuridico_economico, classe_stipendiale)
         or _get(art2, "data_scadenza") or _get(prof, "data_scadenza_stipendi") or ""
     )
     
@@ -838,18 +853,42 @@ def _fill_assenze_in_cell(text: str, assenze: list[dict]) -> str:
     """
     Sostituisce i placeholder '1. [Durata assenza]', '2. [Durata assenza]', '3. [Durata assenza]'
     con i dati reali delle assenze.
-    Le voci in eccesso restano vuote (sostituisce col trattino).
+    Se ci sono più assenze dei placeholder disponibili, le mostra tutte nell'ultimo placeholder.
     """
-    for i in range(1, 20):
+    num_placeholders = 0
+    # Conta quanti placeholder ci sono nel testo
+    for i in range(1, 100):
+        if f"{i}. [Durata assenza]" in text:
+            num_placeholders = i
+        else:
+            break
+    
+    if num_placeholders == 0:
+        return text
+    
+    # Sostituisci i placeholder con le assenze
+    for i in range(1, num_placeholders + 1):
         idx = i - 1
         placeholder = f"{i}. [Durata assenza]"
-        if placeholder not in text:
-            break
-        if idx < len(assenze):
-            value = f"{i}. {_format_assenza(assenze[idx])}"
+        
+        if i < num_placeholders:
+            # Placeholder intermedi: una assenza per placeholder
+            if idx < len(assenze):
+                value = f"{i}. {_format_assenza(assenze[idx])}"
+            else:
+                value = f"{i}."
         else:
-            value = f"{i}."
+            # Ultimo placeholder: metti tutte le assenze rimanenti
+            if idx < len(assenze):
+                remaining = []
+                for j in range(idx, len(assenze)):
+                    remaining.append(f"{j+1}. {_format_assenza(assenze[j])}")
+                value = "\n".join(remaining)
+            else:
+                value = f"{i}."
+        
         text = text.replace(placeholder, value)
+    
     return text
 
 
