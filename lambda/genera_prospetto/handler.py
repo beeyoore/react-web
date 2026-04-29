@@ -1044,6 +1044,34 @@ def response(status_code: int, body: dict) -> dict:
 def lambda_handler(event: dict, context) -> dict:
     logger.info("EVENT: %s", json.dumps(event, default=str))
 
+    # ------------------------------------------------------------------ #
+    # Gestione evento S3 (trigger da extraction)
+    # ------------------------------------------------------------------ #
+    if "Records" in event:
+        for record in event.get("Records", []):
+            if record.get("eventSource") != "aws:s3":
+                continue
+            
+            key = record["s3"]["object"]["key"]
+            # Estrai id_pratica dalla key: output/ready/stipendi/{id_pratica}/_trigger.json
+            parts = key.split("/")
+            if len(parts) >= 4 and parts[0] == "output" and parts[1] == "ready" and parts[2] == "stipendi":
+                id_pratica = parts[3]
+                logger.info("S3 trigger received for pratica: %s", id_pratica)
+                
+                # Genera il prospetto
+                try:
+                    result = _generate_prospetto(id_pratica)
+                    logger.info("Prospetto generated from S3 trigger: %s", result.get("url", "").split("?")[0] if result.get("url") else "N/A")
+                except Exception as e:
+                    logger.error("Error generating prospetto from S3 trigger: %s", str(e))
+                    continue
+        
+        return {"statusCode": 200, "body": json.dumps({"message": "Processing complete"})}
+    
+    # ------------------------------------------------------------------ #
+    # Gestione chiamata HTTP (API Gateway)
+    # ------------------------------------------------------------------ #
     http_method = event.get("httpMethod") or (
         event.get("requestContext", {}).get("http", {}).get("method", "")
     )
@@ -1057,24 +1085,37 @@ def lambda_handler(event: dict, context) -> dict:
         return response(400, {"error": "id_pratica mancante nel path"})
 
     logger.info("Generating prospetto for pratica: %s", id_pratica)
-
-    # 1. Leggi METADATA
+    
     try:
-        metadata = query_metadata(id_pratica)
-    except ClientError as e:
-        return response(500, {"error": f"DynamoDB METADATA: {e.response['Error']['Message']}"})
+        result = _generate_prospetto(id_pratica)
+        return response(200, result)
+    except Exception as e:
+        logger.exception("Error generating prospetto")
+        return response(500, {"error": str(e)})
 
+
+def _generate_prospetto(id_pratica: str) -> dict:
+    """
+    Genera il prospetto per una pratica.
+    
+    Args:
+        id_pratica: ID della pratica
+    
+    Returns:
+        Dict con url e id_pratica
+    
+    Raises:
+        Exception: In caso di errore
+    """
+    # 1. Leggi METADATA
+    metadata = query_metadata(id_pratica)
     if not metadata:
-        return response(404, {"error": f"Pratica {id_pratica} non trovata"})
+        raise ValueError(f"Pratica {id_pratica} non trovata")
 
     # 2. Leggi decreto di ricostruzione
-    try:
-        decreto = query_documento_decreto(id_pratica)
-    except ClientError as e:
-        return response(500, {"error": f"DynamoDB decreto: {e.response['Error']['Message']}"})
-
+    decreto = query_documento_decreto(id_pratica)
     if not decreto:
-        return response(404, {"error": "Nessun documento decreto_ricostruzione trovato per questa pratica"})
+        raise ValueError("Nessun documento decreto_ricostruzione trovato per questa pratica")
 
     # 3. Leggi visto (opzionale)
     try:
@@ -1092,23 +1133,14 @@ def lambda_handler(event: dict, context) -> dict:
     )
 
     # 5. Carica template
-    try:
-        template_bytes = load_template()
-    except ClientError as e:
-        return response(500, {"error": f"Impossibile caricare il template: {e.response['Error']['Message']}"})
+    template_bytes = load_template()
 
     # 6. Compila Excel
-    try:
-        excel_bytes = fill_excel(template_bytes, mapping)
-    except Exception as e:
-        logger.exception("Errore compilazione Excel")
-        return response(500, {"error": f"Errore compilazione Excel: {str(e)}"})
+    excel_bytes = fill_excel(template_bytes, mapping)
 
     # 7. Salva su S3 e restituisci URL
-    try:
-        url = save_output(id_pratica, excel_bytes)
-    except ClientError as e:
-        return response(500, {"error": f"Errore salvataggio S3: {e.response['Error']['Message']}"})
+    url = save_output(id_pratica, excel_bytes)
 
     logger.info("Prospetto generato: %s", url.split("?")[0])
-    return response(200, {"url": url, "id_pratica": id_pratica})
+    return {"url": url, "id_pratica": id_pratica}
+

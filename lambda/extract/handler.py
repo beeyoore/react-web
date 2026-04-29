@@ -1787,6 +1787,90 @@ def _check_and_trigger_checklist_sfn(
     return True
 
 
+def _check_and_trigger_genera_prospetto(
+    bucket: str,
+    id_pratica: str,
+    tipo_servizio: str | None,
+    document_items: list[dict],
+) -> bool:
+    """
+    Verifica se per il servizio STIPENDI esistono sia decreto_ricostruzione che visto.
+    Se entrambi presenti, scrive un file trigger nel bucket per avviare genera_prospetto.
+    
+    Args:
+        bucket: Nome del bucket S3
+        id_pratica: ID della pratica
+        tipo_servizio: Tipo di servizio (es: "stipendi")
+        document_items: Lista di tutti i documenti della pratica
+    
+    Returns:
+        True se il trigger è stato creato, False altrimenti
+    """
+    # Solo per il servizio stipendi
+    if tipo_servizio != "stipendi":
+        return False
+    
+    # Verifica che ci siano sia decreto che visto
+    has_decreto = False
+    has_visto = False
+    
+    for doc in document_items:
+        sk = doc.get("SK", "")
+        if sk.startswith("DOCUMENTO#decreto_ricostruzione#"):
+            has_decreto = True
+        elif sk.startswith("DOCUMENTO#visto#"):
+            has_visto = True
+    
+    # Se manca uno dei due, non fare nulla
+    if not (has_decreto and has_visto):
+        logger.info(
+            "genera_prospetto_trigger_skip id_pratica=%s has_decreto=%s has_visto=%s",
+            id_pratica,
+            has_decreto,
+            has_visto,
+        )
+        return False
+    
+    # Scrivi il file trigger nel bucket
+    trigger_key = f"output/ready/stipendi/{id_pratica}/_trigger.json"
+    
+    try:
+        # Crea un file JSON con informazioni sulla pratica
+        trigger_content = json.dumps(
+            {
+                "id_pratica": id_pratica,
+                "tipo_servizio": tipo_servizio,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "trigger_type": "genera_prospetto",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        
+        s3.put_object(
+            Bucket=bucket,
+            Key=trigger_key,
+            Body=trigger_content,
+            ContentType="application/json",
+        )
+        
+        logger.info(
+            "genera_prospetto_trigger_created id_pratica=%s bucket=%s key=%s",
+            id_pratica,
+            bucket,
+            trigger_key,
+        )
+        return True
+        
+    except ClientError as exc:
+        logger.error(
+            "genera_prospetto_trigger_failed id_pratica=%s error=%s",
+            id_pratica,
+            exc,
+        )
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Lambda handler
 # ---------------------------------------------------------------------------
@@ -2052,6 +2136,16 @@ def lambda_handler(event: dict, context) -> dict:
             document_items=document_items_fresh,
             documenti_attesi=documenti_attesi,
         )
+        # ------------------------------------------------------------------ #
+        # Valuta se triggerare genera_prospetto per il servizio stipendi     #
+        # Solo se ci sono sia decreto_ricostruzione che visto                #
+        # ------------------------------------------------------------------ #
+        genera_prospetto_triggered = _check_and_trigger_genera_prospetto(
+            bucket=bucket,
+            id_pratica=id_pratica,
+            tipo_servizio=tipo_servizio,
+            document_items=document_items_fresh,
+        )
         pending_classified_triggered = 0
         if categoria_just_determined:
             classified_keys = list_classified_keys_for_pratica(
@@ -2079,6 +2173,7 @@ def lambda_handler(event: dict, context) -> dict:
                 "metadataState": metadata_state,
                 "serviziIngestorTriggered": trigger_sent,
                 "checklistSfnTriggered": checklist_sfn_triggered,
+                "generaProspettoTriggered": genera_prospetto_triggered,
                 "pendingClassifiedTriggered": pending_classified_triggered,
             }
         )

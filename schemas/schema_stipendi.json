@@ -1,0 +1,291 @@
+{
+    "_meta": {
+      "version": "1.0",
+      "table_name": "RTS_Pratiche",
+      "descrizione": "Schema dati per il flusso Stipendi - estrazione dati per la generazione del prospetto Excel",
+      "note_generali": [
+        "Questo schema è utilizzato esclusivamente per il flusso stipendi.",
+        "I documenti richiesti sono: decreto_ricostruzione e visto.",
+        "L'estrazione è focalizzata sui dati necessari per compilare il prospetto Excel."
+      ]
+    },
+    "dynamodb": {
+      "tabella_principale": "RTS_Pratiche",
+      "note_accesso": [
+        "Tutti gli item della stessa pratica condividono la stessa PK.",
+        "Usare Query (non Scan) specificando sempre PK = 'PRATICA#<id_pratica>'."
+      ],
+      "chiavi": {
+        "PK": {
+          "nome_attributo": "PK",
+          "formato": "PRATICA#<id_pratica>",
+          "tipo": "String",
+          "descrizione": "Partition key comune a tutti gli item di una pratica."
+        },
+        "SK": {
+          "nome_attributo": "SK",
+          "tipo": "String",
+          "valori_possibili": [
+            "METADATA",
+            "DOCUMENTO#decreto_ricostruzione#<uuid>",
+            "DOCUMENTO#visto#<uuid>"
+          ]
+        }
+      }
+    },
+    "entita": {
+      "PRATICA_METADATA": {
+        "sk_prefix": "METADATA",
+        "tipo_filtro": "exact",
+        "descrizione": "Contiene i metadati di intestazione della pratica stipendi.",
+        "quando_interrogare": "Sempre come primo passo per ottenere id_pratica e tipo_servizio.",
+        "campi": {
+          "id_pratica": {
+            "tipo": "String",
+            "obbligatorio": true,
+            "descrizione": "Identificativo univoco della pratica."
+          },
+          "tipo_servizio": {
+            "tipo": "String",
+            "valori": [
+              "stipendi",
+              "controlli"
+            ],
+            "obbligatorio": true,
+            "descrizione": "Identifica se la pratica appartiene al flusso stipendi o controlli."
+          },
+          "prescrizione": {
+            "tipo": "String",
+            "valori": [
+              "Sì",
+              "No"
+            ],
+            "obbligatorio": false,
+            "descrizione": "Indica se c'è prescrizione."
+          },
+          "data_prescrizione": {
+            "tipo": "Date (DD/MM/YYYY)",
+            "obbligatorio": false,
+            "descrizione": "Data di prescrizione se applicabile."
+          }
+        }
+      },
+      "DOCUMENTO_decreto_ricostruzione": {
+        "classificatore_match": [
+          "Decreto di ricostruzione della carriera"
+        ],
+        "sk_prefix": "DOCUMENTO#decreto_ricostruzione",
+        "tipo_filtro": "begins_with",
+        "obbligatorieta": "SEMPRE",
+        "descrizione": "Documento principale per il flusso stipendi. Contiene tutti i dati necessari per generare il prospetto Excel.",
+        "quando_interrogare": "Per generare il prospetto stipendi.",
+        "campi": {
+          "dati_anagrafici": {
+            "descrizione": "Dati anagrafici dell'interessato",
+            "nome": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Nome dell'interessato."
+            },
+            "cognome": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Cognome dell'interessato."
+            },
+            "codice_fiscale": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Codice fiscale dell'interessato."
+            },
+            "data_nascita": {
+              "tipo": "String",
+              "formato": "DD/MM/YYYY",
+              "obbligatorio": true,
+              "descrizione": "Data di nascita in formato italiano GG/MM/AAAA."
+            }
+          },
+          "dati_professionali": {
+            "descrizione": "Dati professionali",
+            "qualifica_funzionale": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Qualifica funzionale del personale (es. 'Docente scuola superiore diplomato')."
+            },
+            "data_decorrenza_giuridica": {
+              "tipo": "String",
+              "formato": "DD/MM/YYYY",
+              "obbligatorio": true,
+              "descrizione": "Data di decorrenza giuridica in formato GG/MM/AAAA."
+            },
+            "data_decorrenza_economica": {
+              "tipo": "String",
+              "formato": "DD/MM/YYYY",
+              "obbligatorio": true,
+              "descrizione": "Data di decorrenza economica in formato GG/MM/AAAA."
+            }
+          },
+          "intestazione": {
+            "descrizione": "Intestazione del decreto",
+            "numero_decreto": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Numero identificativo del decreto (es. '12345')."
+            },
+            "data_decreto": {
+              "tipo": "String",
+              "formato": "DD/MM/YYYY",
+              "obbligatorio": true,
+              "descrizione": "Data di emissione del decreto in formato GG/MM/AAAA."
+            },
+            "istituto_amministrante": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Nome dell'istituto amministrante (es. 'I.C. G. Pascoli - Roma')."
+            }
+          },
+          "articolo_2": {
+            "descrizione": "Dati dell'articolo 2 - variazione stipendi",
+            "classe_stipendiale": {
+              "tipo": "String",
+              "obbligatorio": true,
+              "descrizione": "Classe o posizione stipendiale in formato testuale (es. 'prima posizione', 'terza posizione stipendiale'). Può essere anche in formato numerico.",
+              "istruzioni_estrazione": "Estrai il valore esattamente come compare nel documento. Se è scritto in forma testuale ('prima posizione stipendiale'), mantieni quella forma. Se è numerico ('00', '09', '15'), mantieni il formato numerico."
+            },
+            "data_conferma_in_ruolo": {
+              "tipo": "String",
+              "formato": "DD/MM/YYYY",
+              "obbligatorio": true,
+              "descrizione": "Data di conferma in ruolo in formato GG/MM/AAAA."
+            },
+            "data_scadenza": {
+              "tipo": "String",
+              "formato": "DD/MM/YYYY",
+              "obbligatorio": false,
+              "descrizione": "Data di scadenza della posizione stipendiale in formato GG/MM/AAAA, se presente."
+            },
+            "periodo_totale_fini_giuridici_economici": {
+              "tipo": "Object",
+              "obbligatorio": true,
+              "descrizione": "Periodo totale riconosciuto ai fini sia giuridici che economici.",
+              "anni": {
+                "tipo": "Int",
+                "obbligatorio": true,
+                "descrizione": "Numero di anni."
+              },
+              "mesi": {
+                "tipo": "Int",
+                "obbligatorio": true,
+                "descrizione": "Numero di mesi."
+              },
+              "giorni": {
+                "tipo": "Int",
+                "obbligatorio": true,
+                "descrizione": "Numero di giorni."
+              }
+            },
+            "periodo_totale_soli_fini_economici": {
+              "tipo": "Object",
+              "obbligatorio": false,
+              "descrizione": "Periodo totale riconosciuto ai soli fini economici, se presente.",
+              "anni": {
+                "tipo": "Int",
+                "obbligatorio": true,
+                "descrizione": "Numero di anni."
+              },
+              "mesi": {
+                "tipo": "Int",
+                "obbligatorio": true,
+                "descrizione": "Numero di mesi."
+              },
+              "giorni": {
+                "tipo": "Int",
+                "obbligatorio": true,
+                "descrizione": "Numero di giorni."
+              }
+            }
+          },
+          "articolo_4": {
+            "tipo": "List-of-Map",
+            "descrizione": "Array degli assegni ad personam dall'articolo 4. Può essere vuoto se non ci sono assegni. Gli assegni che cominciano con \"retribuzione professionale docenti\" e \"indennità vacanza\" vanno riportati con codice la loro descrizione (quindi, ad esempio, retribuzione professionale) e senza numero mensilità ",
+            "obbligatorio": false,
+            "item_struttura": {
+              "codice_assegno": {
+                "tipo": "String",
+                "obbligatorio": true,
+                "descrizione": "Codice identificativo dell'assegno (es. '120/SCU', '121/IND')."
+              },
+              "importo_assegno_ad_personam": {
+                "tipo": "String",
+                "obbligatorio": true,
+                "descrizione": "Importo dell'assegno ad personam in formato stringa con virgola (es. '523,45')."
+              },
+              "numero_mensilita": {
+                "tipo": "String",
+                "obbligatorio": false,
+                "descrizione": "Numero di mensilità per cui è corrisposto l'assegno (es. '13', '12')."
+              }
+            }
+          },
+          "assenze": {
+            "tipo": "List-of-Map",
+            "descrizione": "Array delle assenze (chiamate anche servizi non riconoscibili) riportate nel decreto. Può essere vuoto se non ci sono assenze.",
+            "obbligatorio": false,
+            "item_struttura": {
+              "data_inizio": {
+                "tipo": "String",
+                "formato": "DD/MM/YYYY",
+                "obbligatorio": true,
+                "descrizione": "Data di inizio dell'assenza in formato GG/MM/AAAA."
+              },
+              "data_fine": {
+                "tipo": "String",
+                "formato": "DD/MM/YYYY",
+                "obbligatorio": true,
+                "descrizione": "Data di fine dell'assenza in formato GG/MM/AAAA."
+              },
+              "tipologia_assenza": {
+                "tipo": "String",
+                "obbligatorio": true,
+                "descrizione": "Tipologia dell'assenza (es. 'aspettativa non retribuita', 'malattia')."
+              }
+            }
+          }
+        }
+      },
+      "DOCUMENTO_visto": {
+        "classificatore_match": [
+          "Visto di controllo"
+        ],
+        "sk_prefix": "DOCUMENTO#visto",
+        "tipo_filtro": "begins_with",
+        "obbligatorieta": "SEMPRE",
+        "descrizione": "Visto della Ragioneria Generale dello Stato o visto contabile. Necessario per il prospetto stipendi.",
+        "quando_interrogare": "Per completare i dati del prospetto stipendi.",
+        "campi": {
+          "numero_visto": {
+            "tipo": "String",
+            "obbligatorio": true,
+            "descrizione": "Numero identificativo del visto (es. '2026/123', 'Visto n. 456/2026', 'N. 789-2026').",
+            "istruzioni_estrazione": "Estrai il numero del visto esattamente come riportato nel documento, mantenendo il formato originale."
+          },
+          "data_visto": {
+            "tipo": "String",
+            "formato": "DD/MM/YYYY",
+            "obbligatorio": true,
+            "descrizione": "Data di emissione del visto in formato italiano GG/MM/AAAA (es. '30/04/2026')."
+          },
+          "autorita_emittente": {
+            "tipo": "String",
+            "obbligatorio": false,
+            "descrizione": "Autorità che ha emesso il visto (es. 'Ragioneria Generale dello Stato', 'RGS', 'Ministero dell'Economia e delle Finanze')."
+          },
+          "oggetto": {
+            "tipo": "String",
+            "obbligatorio": false,
+            "descrizione": "Oggetto o riferimento del visto (es. 'Visto di regolarità contabile su decreto di ricostruzione carriera')."
+          }
+        }
+      }
+    }
+  }
+  
