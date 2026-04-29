@@ -68,13 +68,8 @@ FAKE_DECRETO = {
     # Sezione professionale
     "dati_professionali": {
         "qualifica_funzionale": "Docente scuola superiore diplomato",
-        # data_decorrenza_giuridica = data_immissione_in_ruolo
-        "data_immissione_in_ruolo": "01/09/2023",
         "data_decorrenza_giuridica": "01/09/2023",
-        # data_decorrenza_economica = data_assunzione_in_servizio
         "data_decorrenza_economica": "01/09/2023",
-        "data_assunzione_in_servizio": "01/09/2023",
-        "data_conferma_in_ruolo": "01/09/2023",
     },
 
     # Intestazione decreto
@@ -87,7 +82,8 @@ FAKE_DECRETO = {
     # Art. 2 — variazione stipendi
     "articolo_2": {
         # Classe stipendiale come TESTO (esempio alternativo: "terza posizione stipendiale")
-        "classe_stipendiale": "terza posizione",
+        "classe_stipendiale": "prima posizione",
+        "data_conferma_in_ruolo": "01/09/2024",
        # "data_scadenza": "01/09/2027",
         "periodo_totale_fini_giuridici_economici": {
             "anni": 5,
@@ -115,12 +111,6 @@ FAKE_DECRETO = {
         },
     ],
 
-    # Visti (dict singolo o lista)
-    "visti": {
-        "numero_visto": "2026/123",
-        "data_visto": "30/04/2026",
-    },
-
     # Assenze dal decreto (lista — può essere vuota)
     "assenze": [
         {
@@ -134,6 +124,17 @@ FAKE_DECRETO = {
             "tipologia_assenza": "malattia",
         },
     ],
+}
+
+# Documento visto separato
+FAKE_VISTO = {
+    "PK": "PRATICA#FELICI_MARCO_20260421T143022Z",
+    "SK": "DOCUMENTO#visto#visto-001-uuid",
+    "tipo_documento": "visto",
+    "numero_visto": "2026/123",
+    "data_visto": "30/04/2026",
+    "autorita_emittente": "Ragioneria Generale dello Stato",
+    "oggetto": "Visto di regolarità contabile su decreto di ricostruzione carriera"
 }
 
 FAKE_METADATA = {
@@ -232,7 +233,7 @@ def main():
         sys.exit(1)
 
     print("Costruzione placeholder map...")
-    mapping = _build_placeholder_map(FAKE_DECRETO, FAKE_METADATA)
+    mapping = _build_placeholder_map(FAKE_DECRETO, FAKE_METADATA, FAKE_VISTO)
 
     print("Campi estratti:")
     for k, v in mapping.items():

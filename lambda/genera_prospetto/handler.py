@@ -21,11 +21,8 @@ Struttura DynamoDB attesa per item decreto_ricostruzione:
 
   dati_professionali:
     qualifica_funzionale
-    data_immissione_in_ruolo  (= data_decorrenza_giuridica)
     data_decorrenza_giuridica
-    data_decorrenza_economica (= data_assunzione_in_servizio)
-    data_assunzione_in_servizio
-    data_conferma_in_ruolo
+    data_decorrenza_economica
     classe_stipendiale
     data_scadenza_stipendi
 
@@ -537,6 +534,30 @@ def query_documento_decreto(id_pratica: str) -> dict | None:
     return items[0]
 
 
+def query_documento_visto(id_pratica: str) -> dict | None:
+    """Restituisce il primo item visto trovato."""
+    table = dynamodb.Table(DYNAMODB_TABLE)
+    kwargs = {
+        "KeyConditionExpression": (
+            Key("PK").eq(f"PRATICA#{id_pratica}")
+            & Key("SK").begins_with("DOCUMENTO#visto#")
+        )
+    }
+    items = []
+    while True:
+        resp = table.query(**kwargs)
+        items.extend(resp.get("Items", []))
+        last = resp.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
+    # Prefer the most recent extraction
+    if not items:
+        return None
+    items.sort(key=lambda x: x.get("extractedAt", ""), reverse=True)
+    return items[0]
+
+
 # ---------------------------------------------------------------------------
 # Data extraction helpers
 # ---------------------------------------------------------------------------
@@ -626,7 +647,7 @@ def _replace_all(text: str, mapping: dict) -> str:
     return text
 
 
-def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
+def _build_placeholder_map(decreto: dict, metadata: dict, visto: dict | None = None) -> dict:
     anag = decreto.get("dati_anagrafici") or {}
     prof = decreto.get("dati_professionali") or {}
     int_ = decreto.get("intestazione") or {}
@@ -636,10 +657,6 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
     # Supporta sia singolo dict che lista per art4
     if isinstance(art4, list):
         art4 = art4[0] if art4 else {}
-
-    visti = decreto.get("visti") or {}
-    if isinstance(visti, list):
-        visti = visti[0] if visti else {}
 
     assenze_raw = decreto.get("assenze") or []
 
@@ -659,17 +676,10 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         or ""
     )
 
-    data_nomina_in_ruolo = _first(
-        _get(prof, "data_immissione_in_ruolo"),
-        _get(prof, "data_decorrenza_giuridica"),
-    )
-    data_decorrenza_giuridica = _first(
-        _get(prof, "data_decorrenza_giuridica"),
-        _get(prof, "data_immissione_in_ruolo"),
-    )
+    data_nomina_in_ruolo = _get(prof, "data_decorrenza_giuridica") or ""
+    data_decorrenza_giuridica = _get(prof, "data_decorrenza_giuridica") or ""
     data_decorrenza_economica = _first(
         _get(prof, "data_decorrenza_economica"),
-        _get(prof, "data_assunzione_in_servizio"),
         _get(art2, "data_decorrenza_economica"),
     )
     classe_stipendiale_raw = (
@@ -699,9 +709,9 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         classe_stipendiale=classe_stipendiale,
     ) or _get(art2, "data_scadenza") or _get(prof, "data_scadenza_stipendi") or ""
     data_conferma_in_ruolo = (
-        _get(prof, "data_conferma_in_ruolo")
+        _get(art2, "data_conferma_in_ruolo")
+        or _get(prof, "data_conferma_in_ruolo")
         or _get(prof, "data_conferma_ruolo")
-        or _get(art2, "data_conferma_in_ruolo")
         or ""
     )
 
@@ -740,8 +750,9 @@ def _build_placeholder_map(decreto: dict, metadata: dict) -> dict:
         or ""
     )
 
-    numero_visto = _get(visti, "numero_visto") or _get(visti, "numero") or ""
-    data_visto = _get(visti, "data_visto") or _get(visti, "data") or ""
+    # Visti: recuperati dal documento visto separato
+    numero_visto = _get(visto, "numero_visto") or _get(visto, "numero") or ""
+    data_visto = _get(visto, "data_visto") or _get(visto, "data") or ""
 
     periodo_giur_econ = _format_anzianita(
         _get(art2, "periodo_totale_fini_giuridici_economici")
@@ -1026,28 +1037,35 @@ def lambda_handler(event: dict, context) -> dict:
     if not decreto:
         return response(404, {"error": "Nessun documento decreto_ricostruzione trovato per questa pratica"})
 
-    # 3. Costruisci mappa placeholder
-    mapping = _build_placeholder_map(decreto, metadata)
+    # 3. Leggi visto (opzionale)
+    try:
+        visto = query_documento_visto(id_pratica)
+    except ClientError as e:
+        logger.warning("Impossibile recuperare visto: %s", e.response['Error']['Message'])
+        visto = None
+
+    # 4. Costruisci mappa placeholder
+    mapping = _build_placeholder_map(decreto, metadata, visto)
 
     logger.info(
         "Placeholder map keys: %s",
         [k for k in mapping if not k.startswith("_")]
     )
 
-    # 4. Carica template
+    # 5. Carica template
     try:
         template_bytes = load_template()
     except ClientError as e:
         return response(500, {"error": f"Impossibile caricare il template: {e.response['Error']['Message']}"})
 
-    # 5. Compila Excel
+    # 6. Compila Excel
     try:
         excel_bytes = fill_excel(template_bytes, mapping)
     except Exception as e:
         logger.exception("Errore compilazione Excel")
         return response(500, {"error": f"Errore compilazione Excel: {str(e)}"})
 
-    # 6. Salva su S3 e restituisci URL
+    # 7. Salva su S3 e restituisci URL
     try:
         url = save_output(id_pratica, excel_bytes)
     except ClientError as e:

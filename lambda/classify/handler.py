@@ -29,7 +29,8 @@ def build_practice_output_prefix(prefix, id_pratica=None, tipo_flusso=None):
     return f"output/{normalized_prefix}"
 
 
-VALID_DOCUMENT_TYPES = [
+# Tipi di documento comuni a tutti i flussi
+COMMON_DOCUMENT_TYPES = [
     "Decreto di ricostruzione della carriera",
     "Istanza ricostruzione di carriera",
     "Certificato di servizi/Dichiarazione di servizi/Autocertificazione dei servizi",
@@ -40,8 +41,20 @@ VALID_DOCUMENT_TYPES = [
     "Foglio di congedo illimitato",
     "Decreto di mancato superamento prova",
     "Osservazione precedente",
+]
+
+# Tipi di documento per il servizio controlli (tutti quelli comuni)
+CONTROLLI_DOCUMENT_TYPES = COMMON_DOCUMENT_TYPES + ["NON_CLASSIFICATO"]
+
+# Tipi di documento per il servizio stipendi (solo decreto, visto e non classificato)
+STIPENDI_DOCUMENT_TYPES = [
+    "Decreto di ricostruzione della carriera",
+    "Visto di controllo",
     "NON_CLASSIFICATO",
 ]
+
+# Default: usa i tipi controlli per retrocompatibilità
+VALID_DOCUMENT_TYPES = CONTROLLI_DOCUMENT_TYPES
 
 DOCUMENT_TYPE_HINTS = {
     "Decreto di ricostruzione della carriera": [
@@ -105,6 +118,14 @@ DOCUMENT_TYPE_HINTS = {
         "risposta ad osservazione",
         "osservazione inviata in precedenza",
     ],
+    "Visto di controllo": [
+        "visto di controllo",
+        "visto della ragioneria",
+        "visto contabile",
+        "visto di regolarita contabile",
+        "visto di regolarità contabile",
+        "visto RGS",
+    ],
 }
 
 
@@ -152,21 +173,43 @@ DECRETO_NEGATIVE_HINTS = {
     "richiesta di ricostruzione della carriera",
 }
 
-SYSTEM_PROMPT = """
+
+def get_valid_document_types_for_flusso(tipo_flusso: str | None) -> list[str]:
+    """
+    Restituisce la lista di tipi di documento validi in base al tipo_flusso.
+    
+    Args:
+        tipo_flusso: "controlli", "stipendi", o None per default
+    
+    Returns:
+        Lista di tipi di documento validi
+    """
+    if tipo_flusso == "controlli":
+        return CONTROLLI_DOCUMENT_TYPES
+    elif tipo_flusso == "stipendi":
+        return STIPENDI_DOCUMENT_TYPES
+    else:
+        # Default: tutti i tipi per retrocompatibilità
+        return VALID_DOCUMENT_TYPES
+
+
+def build_system_prompt(valid_document_types: list[str]) -> str:
+    """
+    Costruisce il system prompt con la lista specifica di tipi di documento validi.
+    
+    Args:
+        valid_document_types: Lista di tipi di documento validi per il flusso corrente
+    
+    Returns:
+        System prompt formattato
+    """
+    document_types_list = "\n".join(f"- {doc_type}" for doc_type in valid_document_types)
+    
+    return f"""
 Sei un classificatore documentale prudente per documenti amministrativi scolastici italiani.
 
 Devi classificare il documento in UNA sola delle seguenti classi:
-- Decreto di ricostruzione della carriera
-- Istanza ricostruzione di carriera
-- Certificato di servizi/Dichiarazione di servizi/Autocertificazione dei servizi
-- Contratto a tempo indeterminato
-- Decreto superamento anno di formazione e prova
-- Presa d'atto di conferma in ruolo del personale
-- Titolo di studio
-- Foglio di congedo illimitato
-- Decreto di mancato superamento prova
-- Osservazione precedente
-- NON_CLASSIFICATO
+{document_types_list}
 
 Regole:
 - Sii prudente.
@@ -184,13 +227,17 @@ Regole:
 - Restituisci solo JSON puro, senza testo aggiuntivo.
 
 Schema di output:
-{
+{{
   "documentType": "string",
   "confidence": "HIGH|MEDIUM|LOW",
   "discard": true,
   "reasoning": "string"
-}
+}}
 """.strip()
+
+
+# System prompt di default (per retrocompatibilità)
+SYSTEM_PROMPT = build_system_prompt(VALID_DOCUMENT_TYPES)
 
 
 def parse_clean_key(key, clean_prefix):
@@ -384,11 +431,17 @@ def deterministic_decreto_override(classification_input):
     }
 
 
-def classify_document(model_id, classification_input):
+def classify_document(model_id, classification_input, tipo_flusso=None):
+    # Determina i tipi di documento validi in base al flusso
+    valid_types = get_valid_document_types_for_flusso(tipo_flusso)
+    
+    # Costruisce il system prompt specifico per il flusso
+    system_prompt = build_system_prompt(valid_types)
+    
     user_prompt = (
         "Classifica il seguente documento usando solo le classi ammesse.\n"
         "Se non ci sono evidenze sufficienti, usa NON_CLASSIFICATO.\n\n"
-        f"Classi ammesse da copiare letteralmente in documentType:\n{json.dumps(VALID_DOCUMENT_TYPES, ensure_ascii=False)}\n\n"
+        f"Classi ammesse da copiare letteralmente in documentType:\n{json.dumps(valid_types, ensure_ascii=False)}\n\n"
         f"Documento:\n{json.dumps(classification_input, ensure_ascii=False)}"
     )
     body = {
@@ -398,7 +451,7 @@ def classify_document(model_id, classification_input):
                 "content": [{"text": user_prompt}],
             }
         ],
-        "system": [{"text": SYSTEM_PROMPT}],
+        "system": [{"text": system_prompt}],
         "inferenceConfig": {
             "maxTokens": 400,
             "temperature": 0,
@@ -418,7 +471,18 @@ def classify_document(model_id, classification_input):
     return parse_model_json(raw_text)
 
 
-def validate_classification(result):
+def validate_classification(result, valid_types=None):
+    """
+    Valida e normalizza il risultato della classificazione.
+    
+    Args:
+        result: Dizionario con la risposta del modello
+        valid_types: Lista opzionale di tipi validi per il flusso corrente.
+                    Se fornita, forza NON_CLASSIFICATO per tipi non validi.
+    
+    Returns:
+        Dizionario con classificazione validata e normalizzata
+    """
     document_type = result.get("documentType")
     confidence = result.get("confidence", "LOW")
     reasoning = result.get("reasoning", "").strip()
@@ -448,6 +512,18 @@ def validate_classification(result):
         document_type = "NON_CLASSIFICATO"
         confidence = "LOW"
         reasoning = reasoning or "Il modello ha restituito una classe non valida."
+    
+    # Se è fornita una lista di tipi validi, verifica che il tipo sia nella lista
+    if valid_types is not None and document_type != "NON_CLASSIFICATO":
+        if document_type not in valid_types:
+            logger.warning(
+                "classify_type_not_valid_for_flusso document_type=%s valid_types=%s",
+                document_type,
+                valid_types,
+            )
+            reasoning = f"Tipo documento '{document_type}' non valido per questo flusso. {reasoning}"
+            document_type = "NON_CLASSIFICATO"
+            confidence = "LOW"
 
     if confidence not in {"HIGH", "MEDIUM", "LOW"}:
         confidence = "LOW"
@@ -521,9 +597,9 @@ def lambda_handler(event, context):
             len(classification_input["formsByPage"]),
             len(classification_input["tablesByPage"]),
         )
-        logger.info("classify_bedrock_call_start key=%s model_id=%s", key, model_id)
+        logger.info("classify_bedrock_call_start key=%s model_id=%s tipo_flusso=%s", key, model_id, parsed.get("tipo_flusso"))
         try:
-            raw_result = classify_document(model_id, classification_input)
+            raw_result = classify_document(model_id, classification_input, tipo_flusso=parsed.get("tipo_flusso"))
         except json.JSONDecodeError:
             logger.warning("classify_model_parse_fallback key=%s reason=invalid_model_json", key)
             raw_result = {
@@ -533,7 +609,10 @@ def lambda_handler(event, context):
                 "reasoning": "Il modello ha restituito una risposta non valida per la classificazione.",
             }
         logger.info("classify_model_raw_result key=%s raw_result=%s", key, json.dumps(raw_result, ensure_ascii=False))
-        classification = validate_classification(raw_result)
+        
+        # Ottieni i tipi validi per il flusso corrente
+        valid_types = get_valid_document_types_for_flusso(parsed.get("tipo_flusso"))
+        classification = validate_classification(raw_result, valid_types=valid_types)
         decreto_override = deterministic_decreto_override(classification_input)
         if decreto_override and classification["documentType"] != DECRETO_DOCUMENT_TYPE:
             logger.info(

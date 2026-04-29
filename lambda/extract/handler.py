@@ -214,19 +214,34 @@ Regole obbligatorie:
 # ---------------------------------------------------------------------------
 
 def _schema_candidates(schema_filename: str = "rts_schema.json") -> list[Path]:
-    env_var = "RTS_SCHEMA_ATA_PATH" if schema_filename == "rts_schema_ata.json" else "RTS_SCHEMA_PATH"
+    if schema_filename == "rts_schema_ata.json":
+        env_var = "RTS_SCHEMA_ATA_PATH"
+    elif schema_filename == "schema_stipendi.json":
+        env_var = "RTS_SCHEMA_STIPENDI_PATH"
+    else:
+        env_var = "RTS_SCHEMA_PATH"
+    
     env_path = os.environ.get(env_var)
     candidates: list[Path] = []
     if env_path:
         candidates.append(Path(env_path))
 
     base_dir = Path(__file__).parent
-    candidates.extend(
-        [
-            base_dir / "docs" / "query_tool" / schema_filename,
-            base_dir / schema_filename,
-        ]
-    )
+    # Per schema_stipendi.json, cerca nella cartella schemas al livello superiore
+    if schema_filename == "schema_stipendi.json":
+        candidates.extend(
+            [
+                base_dir.parent / "schemas" / schema_filename,
+                base_dir / schema_filename,
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                base_dir / "docs" / "query_tool" / schema_filename,
+                base_dir / schema_filename,
+            ]
+        )
     return candidates
 
 
@@ -247,12 +262,17 @@ def load_schema(schema_filename: str = "rts_schema.json") -> dict:
     raise FileNotFoundError(f"Impossibile trovare {schema_filename}")
 
 
-def schema_filename_for_categoria(categoria_personale: str | None) -> str:
+def schema_filename_for_categoria(categoria_personale: str | None, tipo_servizio: str | None = None) -> str:
+    # Se il tipo_servizio è "stipendi", usa sempre lo schema stipendi
+    if tipo_servizio == "stipendi":
+        return "schema_stipendi.json"
+    
+    # Altrimenti usa la logica classica per il flusso controlli
     return "rts_schema_ata.json" if categoria_personale == "ATA" else "rts_schema.json"
 
 
-def load_schema_for_category(categoria_personale: str) -> dict:
-    return load_schema(schema_filename_for_categoria(categoria_personale))
+def load_schema_for_category(categoria_personale: str, tipo_servizio: str | None = None) -> dict:
+    return load_schema(schema_filename_for_categoria(categoria_personale, tipo_servizio))
 
 
 # ---------------------------------------------------------------------------
@@ -1802,6 +1822,9 @@ def lambda_handler(event: dict, context) -> dict:
             skipped.append({"key": classified_key, "reason": "invalid_classified_key"})
             continue
 
+        # Estrai tipo_flusso dal path (es: stipendi, controlli)
+        tipo_flusso_from_path = parsed.get("tipo_flusso")
+
         classified_document = load_json_object(bucket, classified_key)
         if not classified_document:
             logger.info("entity_extractor_skip key=%s reason=missing_classified_document", classified_key)
@@ -1893,18 +1916,27 @@ def lambda_handler(event: dict, context) -> dict:
             pratica_metadata = {**pratica_metadata, "categoria_personale": categoria_personale}
             categoria_just_determined = True
 
-        schema = load_schema_for_category(categoria_personale)
+        # Estrai tipo_servizio dai metadata, con fallback dal path
+        tipo_servizio = pratica_metadata.get("tipo_servizio") or tipo_flusso_from_path
+        schema = load_schema_for_category(categoria_personale, tipo_servizio)
 
         schema_section_name, schema_section = resolve_schema_section(document_type, schema, pratica_metadata)
         if not schema_section:
-            logger.info("entity_extractor_skip key=%s reason=unsupported_or_ambiguous_document_type document_type=%s", classified_key, document_type)
+            logger.info(
+                "entity_extractor_skip key=%s reason=unsupported_or_ambiguous_document_type document_type=%s tipo_servizio=%s schema_file=%s",
+                classified_key,
+                document_type,
+                tipo_servizio,
+                schema_filename_for_categoria(categoria_personale, tipo_servizio),
+            )
             skipped.append(
                 {
                     "key": classified_key,
                     "reason": "unsupported_or_ambiguous_document_type",
                     "documentType": document_type,
                     "categoria_personale": categoria_personale,
-                    "schemaFile": schema_filename_for_categoria(categoria_personale),
+                    "tipo_servizio": tipo_servizio,
+                    "schemaFile": schema_filename_for_categoria(categoria_personale, tipo_servizio),
                 }
             )
             continue
@@ -2042,7 +2074,8 @@ def lambda_handler(event: dict, context) -> dict:
                 "documentType": document_type,
                 "schemaSection": schema_section_name,
                 "categoriaPersonale": categoria_personale,
-                "schemaFile": schema_filename_for_categoria(categoria_personale),
+                "tipoServizio": tipo_servizio,
+                "schemaFile": schema_filename_for_categoria(categoria_personale, tipo_servizio),
                 "metadataState": metadata_state,
                 "serviziIngestorTriggered": trigger_sent,
                 "checklistSfnTriggered": checklist_sfn_triggered,
